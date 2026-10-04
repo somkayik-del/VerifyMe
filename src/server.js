@@ -20,7 +20,7 @@ app.use('/api', unitRoutes); // exposes /api/batches/:batchId/units and /api/uni
 app.use('/api/verify', verifyRoutes);
 
 // Serve the frontend so the whole app runs from one origin (no CORS headaches).
-const frontendDir = path.join(__dirname, '..', '..', 'frontend');
+const frontendDir = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendDir));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
