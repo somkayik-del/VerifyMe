@@ -5,6 +5,8 @@ const cors = require('cors');
 
 require('./db'); // ensures tables exist before routes touch them
 
+console.log('Files in backend root:', require('fs').readdirSync(path.join(__dirname, '..')));
+
 const authRoutes = require('./routes/auth');
 const batchRoutes = require('./routes/batches');
 const unitRoutes = require('./routes/units');
