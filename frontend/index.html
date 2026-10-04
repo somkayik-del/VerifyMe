@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product Authenticator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="mark">🛡</span>
+      <div>
+        <h1>Product Authenticator</h1>
+        <div class="sub">Verify what's real</div>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button id="tabVerifyBtn" class="active" onclick="showView('verify')">Verify a product</button>
+      <button id="tabCompanyBtn" onclick="showView('company')">Company portal</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- VERIFY VIEW -->
+  <section id="view-verify" class="view active">
+    <h2 class="section-title">Check if a product is genuine</h2>
+    <p class="section-lede">Scan the QR code printed on the product, or type the code beneath it.</p>
+
+    <div id="sealStage" class="seal-stage idle">
+      <div class="seal-ring" id="sealRing">?</div>
+      <p class="seal-headline" id="sealHeadline">Nothing checked yet</p>
+      <p class="seal-sub" id="sealSub">Your result will appear here.</p>
+      <dl class="seal-details" id="sealDetails" style="display:none;"></dl>
+      <div class="scan-warning" id="scanWarning" style="display:none;"></div>
+    </div>
+
+    <div class="verify-controls">
+      <input type="text" id="codeInput" placeholder="e.g. PEAKMILK-BATCH2026001-0042">
+      <button class="btn" onclick="verifyCode()">Verify</button>
+    </div>
+    <button class="btn secondary full" onclick="openCamera()">📷 Scan QR code instead</button>
+  </section>
+
+  <!-- COMPANY VIEW -->
+  <section id="view-company" class="view">
+
+    <div id="authBlock">
+      <h2 class="section-title">Company portal</h2>
+      <p class="section-lede">Register your company, then log batches and generate QR codes for every unit you produce.</p>
+
+      <div class="auth-box">
+        <div class="auth-toggle">
+          <button id="authTabLogin" class="active" onclick="showAuthTab('login')">Log in</button>
+          <button id="authTabRegister" onclick="showAuthTab('register')">Register company</button>
+        </div>
+
+        <div id="authPanelLogin" class="auth-panel active">
+          <div class="field">
+            <label class="field-label">Company name</label>
+            <input type="text" id="loginName" placeholder="Peak Milk Nigeria">
+          </div>
+          <div class="field">
+            <label class="field-label">PIN</label>
+            <input type="password" id="loginPin" placeholder="4+ digit demo PIN">
+          </div>
+          <p class="error-text" id="loginError" style="display:none;"></p>
+          <button class="btn full" onclick="doLogin()">Log in</button>
+        </div>
+
+        <div id="authPanelRegister" class="auth-panel">
+          <div class="field">
+            <label class="field-label">Company name</label>
+            <input type="text" id="regName" placeholder="Peak Milk Nigeria">
+          </div>
+          <div class="field">
+            <label class="field-label">Choose a PIN</label>
+            <input type="password" id="regPin" placeholder="4+ digit demo PIN">
+          </div>
+          <p class="error-text" id="regError" style="display:none;"></p>
+          <button class="btn full" onclick="doRegister()">Create company profile</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="dashBlock" style="display:none;">
+      <div class="company-header">
+        <div>
+          <div class="name" id="dashCompanyName">—</div>
+          <div class="meta" id="dashCompanyMeta">—</div>
+        </div>
+        <button class="btn ghost" onclick="doLogout()">Log out</button>
+      </div>
+
+      <div class="card">
+        <h3>Register a new batch</h3>
+        <div class="field">
+          <label class="field-label">Product name</label>
+          <input type="text" id="batchProduct" placeholder="Peak Full Cream Milk 400g">
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label class="field-label">Batch number</label>
+            <input type="text" id="batchNumber" placeholder="BATCH-2026-001">
+          </div>
+          <div class="field">
+            <label class="field-label">Manufacturing date</label>
+            <input type="date" id="batchDate">
+          </div>
+        </div>
+        <p class="error-text" id="batchError" style="display:none;"></p>
+        <button class="btn" onclick="createBatch()">Register batch</button>
+      </div>
+
+      <div class="card">
+        <h3>Your batches</h3>
+        <div id="batchListWrap">
+          <p class="empty-note">Loading…</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="note">
+  Data lives in a real SQLite database on this server — this runs as an actual client/server app, not a browser-only demo.
+</footer>
+
+<!-- Camera modal -->
+<div class="cam-modal" id="camModal">
+  <div class="cam-card">
+    <video id="camVideo" playsinline muted></video>
+    <p>Point the camera at the QR code on the product.</p>
+    <button class="btn secondary full" onclick="closeCamera()">Cancel</button>
+  </div>
+</div>
+
+<canvas id="camCanvas" style="display:none;"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
