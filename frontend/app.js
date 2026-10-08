@@ -384,10 +384,28 @@ function closeCamera() {
   if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
 }
 
+// Works whether the QR holds a bare code or a link like https://site/?code=XXXX
+function extractCode(text) {
+  try {
+    const url = new URL(text);
+    const fromQuery = url.searchParams.get('code');
+    if (fromQuery) return fromQuery;
+    const lastPart = url.pathname.split('/').filter(Boolean).pop();
+    if (lastPart) return decodeURIComponent(lastPart);
+  } catch (e) {}
+  return text;
+}
+
 function scanLoop() {
   const video = document.getElementById('camVideo');
   const canvas = document.getElementById('camCanvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  if (typeof jsQR === 'undefined') {
+    closeCamera();
+    alert('The QR reading library failed to load. Check your internet connection and refresh the page.');
+    return;
+  }
 
   function tick() {
     if (!camStream) return;
@@ -399,8 +417,8 @@ function scanLoop() {
       const result = jsQR(imageData.data, imageData.width, imageData.height);
       if (result && result.data) {
         closeCamera();
-        verifyCode(result.data);
         showView('verify');
+        verifyCode(extractCode(result.data));
         return;
       }
     }
@@ -412,3 +430,8 @@ function scanLoop() {
 /* ---------- init ---------- */
 document.getElementById('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') verifyCode(); });
 if (session) renderCompanyView();
+
+// If someone scanned the QR with their phone's normal camera app, the link
+// opens this page with ?code=... in the address, so verify it straight away.
+const scannedCode = new URLSearchParams(location.search).get('code');
+if (scannedCode) verifyCode(scannedCode);
