@@ -79,6 +79,9 @@ router.get('/batches/:batchId/units', requireAuth, (req, res) => {
       serialNumber: u.serial_number,
       verifyCount: u.verify_count,
       lastVerifiedAt: u.last_verified_at,
+      lastLat: u.last_lat,
+      lastLng: u.last_lng,
+      lastAccuracy: u.last_accuracy,
       flags: { velocity: !!u.last_flag_velocity, geoJump: !!u.last_flag_geo, geoJumpDetail: u.last_flag_detail }
     }))
   });

@@ -57,4 +57,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_units_batch ON units(batch_id);
 `);
 
+// --- Upgrades for databases created before the device/location rules ---
+// Safe to run every start: a column is only added if it isn't there yet,
+// and existing data is never touched.
+function addColumnIfMissing(table, column, definition) {
+  const existing = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!existing.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+addColumnIfMissing('scans', 'device_id', 'TEXT');      // anonymous per-browser ID
+addColumnIfMissing('scans', 'accuracy', 'REAL');       // location error radius, metres
+addColumnIfMissing('units', 'last_lat', 'REAL');       // where the last scan happened
+addColumnIfMissing('units', 'last_lng', 'REAL');
+addColumnIfMissing('units', 'last_accuracy', 'REAL');
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_scans_unit_device ON scans(unit_code, device_id, at)');
+
 module.exports = db;

@@ -129,7 +129,7 @@ async function renderBatchList() {
 
   let html = '<table class="ledger"><thead><tr><th>Product</th><th>Batch #</th><th>Mfg. date</th><th>Units</th></tr></thead><tbody>';
   for (const b of batchesCache) {
-    const flaggedInBatch = (unitsCache[b.id] || []).filter(u => u.flags.velocity || u.flags.geoJump).length;
+    const flaggedInBatch = (unitsCache[b.id] || []).filter(u => u.flags.geoJump).length;
     html += `<tr class="batch-row" onclick="toggleBatch('${b.id}')">
       <td>${escapeHTML(b.productName)}</td>
       <td class="mono">${escapeHTML(b.batchNumber)}</td>
@@ -163,6 +163,16 @@ async function loadUnits(batchId) {
   }
 }
 
+// "12 Oct 2026, 3:41 PM · 6.52410, 3.37920 (open map)" or "Not scanned yet"
+function formatLastScan(u) {
+  if (!u.lastVerifiedAt) return 'Not scanned yet';
+  const when = new Date(u.lastVerifiedAt).toLocaleString();
+  if (u.lastLat == null || u.lastLng == null) return escapeHTML(when);
+  const lat = Number(u.lastLat).toFixed(5);
+  const lng = Number(u.lastLng).toFixed(5);
+  return `${escapeHTML(when)} · <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">${lat}, ${lng} (open map)</a>`;
+}
+
 function renderUnitsPanelInner(batch) {
   const units = unitsCache[batch.id] || [];
   let inner = `
@@ -190,16 +200,15 @@ function renderUnitsPanelInner(batch) {
     inner += '<p class="empty-note">No units registered in this batch yet.</p>';
   } else {
     inner += units.map(u => {
-      const flagged = u.flags.velocity || u.flags.geoJump;
-      const flagLabel = u.flags.velocity && u.flags.geoJump ? 'Rate + location flag'
-        : u.flags.velocity ? 'Rate flag'
-        : u.flags.geoJump ? 'Location flag' : '';
+      const flagged = u.flags.geoJump;
       return `
       <div class="unit-card">
         <div class="qr-thumb"><img src="${API_BASE}/units/${encodeURIComponent(u.code)}/qr.png" alt="QR for ${escapeHTML(u.code)}"></div>
         <div style="flex:1; min-width:0;">
-          <div class="unit-code">${escapeHTML(u.code)} ${flagged ? `<span class="flag-badge">⚠ ${flagLabel}</span>` : ''}</div>
+          <div class="unit-code">${escapeHTML(u.code)} ${flagged ? '<span class="flag-badge">⚠ Possible duplicate</span>' : ''}</div>
           <div class="unit-meta">Serial ${escapeHTML(u.serialNumber)} · checked ${u.verifyCount} time${u.verifyCount === 1 ? '' : 's'}</div>
+          <div class="unit-meta">Last scanned: ${formatLastScan(u)}</div>
+          ${flagged && u.flags.geoJumpDetail ? `<div class="unit-meta">${escapeHTML(u.flags.geoJumpDetail)}</div>` : ''}
         </div>
         <a class="btn ghost" href="${API_BASE}/units/${encodeURIComponent(u.code)}/qr.png" download="${u.code}.png">Download</a>
       </div>`;
@@ -274,19 +283,85 @@ function escapeHTML(str) {
   return d.innerHTML;
 }
 
-/* ---------- consumer verification ---------- */
-function getScanLocation() {
-  return new Promise(resolve => {
-    if (!navigator.geolocation) { resolve(null); return; }
-    const timer = setTimeout(() => resolve(null), 4000);
-    navigator.geolocation.getCurrentPosition(
-      pos => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
-      () => { clearTimeout(timer); resolve(null); },
-      { timeout: 3500, maximumAge: 60000 }
+/* ---------- device ID ---------- */
+// A random ID created once per browser and remembered. It lets the server tell
+// "the same phone scanning again" apart from "different phones". It holds no
+// personal information. Clearing browser data creates a new one.
+let memoryDeviceId = null;
+
+function randomId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'd-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem('pa_device_id');
+    if (!id) { id = randomId(); localStorage.setItem('pa_device_id', id); }
+    return id;
+  } catch (e) {
+    if (!memoryDeviceId) memoryDeviceId = randomId();
+    return memoryDeviceId;
+  }
+}
+
+/* ---------- location (required to verify) ---------- */
+const GOOD_ACCURACY_M = 100;    // stop waiting as soon as a reading is this precise
+const MAX_ACCURACY_M = 1000;    // refuse readings worse than this (keep equal to the server)
+const LOCATION_WAIT_MS = 8000;  // wait up to this long for a good reading
+
+// Asks the phone for its most precise location, waiting briefly for GPS to settle.
+// Resolves { lat, lng, accuracy } or rejects { type: 'denied' | 'unsupported' | 'unavailable' | 'timeout' }.
+function getBestLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject({ type: 'unsupported' }); return; }
+
+    let best = null;
+    let finished = false;
+    let watchId = null;
+    let timer = null;
+
+    function finish(err) {
+      if (finished) return;
+      finished = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearTimeout(timer);
+      if (best) resolve(best);
+      else reject(err || { type: 'timeout' });
+    }
+
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+        const c = pos.coords;
+        if (!best || c.accuracy < best.accuracy) {
+          best = { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy };
+        }
+        if (best.accuracy <= GOOD_ACCURACY_M) finish();
+      },
+      err => finish({ type: err.code === 1 ? 'denied' : 'unavailable' }),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+    timer = setTimeout(() => finish({ type: 'timeout' }), LOCATION_WAIT_MS);
   });
 }
 
+function showLocationProblem(type, accuracy) {
+  const messages = {
+    denied: 'Location access is blocked. To verify a product, allow location for this site (tap the lock or settings icon next to the web address, then Permissions → Location → Allow), then try again.',
+    unsupported: "This browser or device can't share its location, so the product can't be verified. Try a different browser or phone.",
+    unavailable: "We couldn't get your location. Make sure Location is turned on for your phone, move near a window or outdoors, then try again.",
+    timeout: "We couldn't get your location in time. Make sure Location is turned on, move near a window or outdoors, then try again.",
+    inaccurate: `Your location isn't precise enough${accuracy ? ` (about ${Math.round(accuracy)} m)` : ''}. Move near a window or outdoors and try again.`
+  };
+  document.getElementById('sealStage').className = 'seal-stage notfound';
+  document.getElementById('sealRing').textContent = '✕';
+  document.getElementById('sealHeadline').textContent = 'Location needed';
+  document.getElementById('sealSub').textContent = messages[type] || messages.unavailable;
+  document.getElementById('sealDetails').style.display = 'none';
+  document.getElementById('scanWarning').style.display = 'none';
+}
+
+/* ---------- consumer verification ---------- */
 async function verifyCode(rawCode) {
   const input = document.getElementById('codeInput');
   const code = (rawCode !== undefined ? rawCode : input.value).trim().toUpperCase();
@@ -303,17 +378,35 @@ async function verifyCode(rawCode) {
   stage.className = 'seal-stage idle';
   ring.textContent = '…';
   headline.textContent = 'Checking…';
-  sub.textContent = '';
+  sub.textContent = 'Getting your location…';
   details.style.display = 'none';
   warning.style.display = 'none';
 
-  const loc = await getScanLocation();
+  // Location is mandatory: no location, no verification.
+  let loc;
+  try {
+    loc = await getBestLocation();
+  } catch (e) {
+    showLocationProblem(e && e.type);
+    return;
+  }
+  if (loc.accuracy > MAX_ACCURACY_M) {
+    showLocationProblem('inaccurate', loc.accuracy);
+    return;
+  }
+  sub.textContent = '';
 
   let data;
   try {
     data = await api('/verify', {
       method: 'POST',
-      body: JSON.stringify({ code, lat: loc ? loc.lat : undefined, lng: loc ? loc.lng : undefined })
+      body: JSON.stringify({
+        code,
+        lat: loc.lat,
+        lng: loc.lng,
+        accuracy: loc.accuracy,
+        deviceId: getDeviceId()
+      })
     });
   } catch (e) {
     stage.className = 'seal-stage notfound';
@@ -331,8 +424,8 @@ async function verifyCode(rawCode) {
     return;
   }
 
-  const { product, verifyCount, flags } = data;
-  const isSuspicious = flags.velocity || flags.geoJump;
+  const { product, verifyCount, flags, previousScanAt } = data;
+  const isSuspicious = flags.geoJump;
 
   stage.className = 'seal-stage ' + (isSuspicious ? 'flagged' : 'genuine');
   ring.textContent = isSuspicious ? '!' : '✓';
@@ -346,14 +439,12 @@ async function verifyCode(rawCode) {
     <dt>Manufactured</dt><dd>${escapeHTML(product.manufacturingDate)}</dd>
     <dt>Serial</dt><dd>${escapeHTML(product.serialNumber)}</dd>
     <dt>Checked</dt><dd>${verifyCount} time${verifyCount === 1 ? '' : 's'}</dd>
+    <dt>Previous check</dt><dd>${previousScanAt ? escapeHTML(new Date(previousScanAt).toLocaleString()) : 'First time checked'}</dd>
   `;
 
   if (isSuspicious) {
-    const reasons = [];
-    if (flags.velocity) reasons.push('several checks in a short span of time');
-    if (flags.geoJump) reasons.push(`checked from two places that are far apart in a short time (${flags.geoJumpDetail})`);
     warning.style.display = 'block';
-    warning.textContent = `This code is genuine, but its recent activity looks unusual: ${reasons.join(' and ')}. This can happen when the same code has been copied onto more than one physical product.`;
+    warning.textContent = `This code is genuine, but its recent activity looks unusual: ${flags.geoJumpDetail || 'it was scanned from far-apart places by several devices'}. This can happen when the same code has been copied onto more than one physical product.`;
   } else {
     warning.style.display = 'none';
   }
