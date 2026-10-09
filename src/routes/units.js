@@ -84,12 +84,14 @@ router.get('/batches/:batchId/units', requireAuth, (req, res) => {
   });
 });
 
-// Public: render a QR PNG for a code. No lookup needed — the QR just encodes the
-// code text itself, so this works even for a code that doesn't exist (useful for
-// print previews); verification is a separate, authoritative step.
+// Public: render a QR PNG for a code. The QR encodes a full web link
+// (https://your-site/?code=THE-CODE) so a phone's normal camera app can open
+// it and verify straight away. The in-app scanner reads this link too.
 router.get('/units/:code/qr.png', async (req, res) => {
   try {
-    const buffer = await QRCode.toBuffer(req.params.code, { width: 300, margin: 1 });
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const link = `${base}/?code=${encodeURIComponent(req.params.code)}`;
+    const buffer = await QRCode.toBuffer(link, { width: 400, margin: 2 });
     res.set('Content-Type', 'image/png');
     res.send(buffer);
   } catch (e) {

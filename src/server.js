@@ -5,14 +5,17 @@ const cors = require('cors');
 
 require('./db'); // ensures tables exist before routes touch them
 
-console.log('Files in backend root:', require('fs').readdirSync(path.join(__dirname, '..')));
-
 const authRoutes = require('./routes/auth');
 const batchRoutes = require('./routes/batches');
 const unitRoutes = require('./routes/units');
 const verifyRoutes = require('./routes/verify');
 
 const app = express();
+
+// Railway sits behind a proxy that handles HTTPS. This makes req.protocol
+// report "https" correctly, so QR links are built with https://.
+app.set('trust proxy', 1);
+
 app.use(cors());
 app.use(express.json());
 
