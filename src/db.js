@@ -1,7 +1,25 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data.db');
+// Where to keep the database file. Order of preference:
+//  1. DB_PATH, if you set it
+//  2. the folder of a Railway volume, if one is attached
+//  3. a local file next to the code (fine on your own computer, but Railway
+//     erases it on every deploy)
+const volumeDir = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+const DB_PATH =
+  process.env.DB_PATH ||
+  (volumeDir ? path.join(volumeDir, 'data.db') : path.join(__dirname, '..', 'data.db'));
+
+// Create the folder if it's missing so the app never crashes on startup.
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+console.log('Database file:', DB_PATH);
+if ((process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_ENVIRONMENT_NAME) && !volumeDir) {
+  console.warn('WARNING: no Railway volume is attached. The database will be erased on every deploy.');
+}
+
 const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
