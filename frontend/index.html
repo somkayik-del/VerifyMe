@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="extra.css">
 </head>
 <body>
 
@@ -43,10 +44,15 @@
     </div>
 
     <div class="verify-controls">
-      <input type="text" id="codeInput" placeholder="e.g. PEAKMILK-BATCH2026001-0042">
+      <input type="text" id="codeInput" placeholder="e.g. PEAKMILK-BATCH2026001-0042-K7M2QX9R">
       <button class="btn" onclick="verifyCode()">Verify</button>
     </div>
     <button class="btn secondary full" onclick="openCamera()">📷 Scan QR code instead</button>
+
+    <p class="privacy-note">
+      To check a product we use your phone's location and an anonymous device ID. They help spot
+      counterfeit copies and are kept for up to a year. We never ask for your name or phone number.
+    </p>
   </section>
 
   <!-- COMPANY VIEW -->
@@ -68,8 +74,8 @@
             <input type="text" id="loginName" placeholder="Peak Milk Nigeria">
           </div>
           <div class="field">
-            <label class="field-label">PIN</label>
-            <input type="password" id="loginPin" placeholder="4+ digit demo PIN">
+            <label class="field-label">Password</label>
+            <input type="password" id="loginPin" placeholder="Your password">
           </div>
           <p class="error-text" id="loginError" style="display:none;"></p>
           <button class="btn full" onclick="doLogin()">Log in</button>
@@ -81,8 +87,8 @@
             <input type="text" id="regName" placeholder="Peak Milk Nigeria">
           </div>
           <div class="field">
-            <label class="field-label">Choose a PIN</label>
-            <input type="password" id="regPin" placeholder="4+ digit demo PIN">
+            <label class="field-label">Choose a password</label>
+            <input type="password" id="regPin" placeholder="At least 8 characters">
           </div>
           <p class="error-text" id="regError" style="display:none;"></p>
           <button class="btn full" onclick="doRegister()">Create company profile</button>
@@ -99,30 +105,78 @@
         <button class="btn ghost" onclick="doLogout()">Log out</button>
       </div>
 
-      <div class="card">
-        <h3>Register a new batch</h3>
-        <div class="field">
-          <label class="field-label">Product name</label>
-          <input type="text" id="batchProduct" placeholder="Peak Full Cream Milk 400g">
-        </div>
-        <div class="row2">
+      <nav class="dash-tabs">
+        <button id="dashTabBatches" class="active" onclick="showDashTab('batches')">Batches</button>
+        <button id="dashTabAlerts" onclick="showDashTab('alerts')">Alerts<span class="count-badge" id="alertCount" style="display:none;">0</span></button>
+        <button id="dashTabSettings" onclick="showDashTab('settings')">Settings</button>
+      </nav>
+
+      <!-- Batches -->
+      <div id="dashPanelBatches">
+        <div class="card">
+          <h3>Register a new batch</h3>
           <div class="field">
-            <label class="field-label">Batch number</label>
-            <input type="text" id="batchNumber" placeholder="BATCH-2026-001">
+            <label class="field-label">Product name</label>
+            <input type="text" id="batchProduct" placeholder="Peak Full Cream Milk 400g">
           </div>
-          <div class="field">
-            <label class="field-label">Manufacturing date</label>
-            <input type="date" id="batchDate">
+          <div class="row2">
+            <div class="field">
+              <label class="field-label">Batch number</label>
+              <input type="text" id="batchNumber" placeholder="BATCH-2026-001">
+            </div>
+            <div class="field">
+              <label class="field-label">Manufacturing date</label>
+              <input type="date" id="batchDate">
+            </div>
+          </div>
+          <p class="error-text" id="batchError" style="display:none;"></p>
+          <button class="btn" onclick="createBatch()">Register batch</button>
+        </div>
+
+        <div class="card">
+          <h3>Your batches</h3>
+          <div id="batchListWrap">
+            <p class="empty-note">Loading…</p>
           </div>
         </div>
-        <p class="error-text" id="batchError" style="display:none;"></p>
-        <button class="btn" onclick="createBatch()">Register batch</button>
       </div>
 
-      <div class="card">
-        <h3>Your batches</h3>
-        <div id="batchListWrap">
-          <p class="empty-note">Loading…</p>
+      <!-- Alerts -->
+      <div id="dashPanelAlerts" style="display:none;">
+        <div class="card">
+          <h3>Alerts</h3>
+          <p class="small-note">
+            Codes that look copied. A code stays flagged until you review it: mark it a false alarm
+            if the activity is explained, or confirm it as a copy so shoppers are warned.
+          </p>
+          <div id="alertsWrap"><p class="empty-note">Loading…</p></div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div id="dashPanelSettings" style="display:none;">
+        <div class="card">
+          <h3>Alert settings</h3>
+          <p class="small-note">Alerts always appear in the Alerts tab. You can also be told straight away.</p>
+          <div class="field">
+            <label class="field-label">Alert email</label>
+            <input type="email" id="setAlertEmail" placeholder="alerts@yourcompany.com">
+          </div>
+          <p class="small-note" id="setEmailNote" style="margin-top:-6px;"></p>
+          <div class="field">
+            <label class="field-label">Webhook address (optional, for your own systems)</label>
+            <input type="url" id="setWebhookUrl" placeholder="https://example.com/hooks/authenticator">
+          </div>
+          <div class="field" id="setSecretField" style="display:none;">
+            <label class="field-label">Webhook signing secret</label>
+            <input type="text" id="setWebhookSecret" readonly>
+            <p class="small-note">Each alert is sent as JSON with an <code>X-Authenticator-Signature</code> header (HMAC-SHA256 of the body with this secret), so your system can confirm it came from here.</p>
+          </div>
+          <div class="alert-actions">
+            <button class="btn" onclick="saveSettings()">Save settings</button>
+            <button class="btn secondary" onclick="sendTestAlert()">Send a test alert</button>
+          </div>
+          <p class="status-line" id="setStatus"></p>
         </div>
       </div>
     </div>

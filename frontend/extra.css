@@ -1,0 +1,42 @@
+/* Extra styles for the dashboard tabs, alerts and settings.
+   Kept separate so your existing style.css stays exactly as it is. */
+
+.dash-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.dash-tabs button {
+  font: inherit; color: inherit; cursor: pointer;
+  padding: 8px 16px; border-radius: 999px;
+  border: 1.5px solid rgba(128, 128, 128, .45); background: transparent;
+}
+.dash-tabs button.active { font-weight: 600; border-color: currentColor; background: rgba(128, 128, 128, .16); }
+
+.count-badge {
+  display: inline-block; min-width: 20px; margin-left: 6px; padding: 0 6px;
+  border-radius: 999px; background: #b3261e; color: #fff;
+  font-size: 12px; font-weight: 600; line-height: 20px; text-align: center;
+}
+
+.status-pill {
+  display: inline-block; margin-left: 6px; padding: 1px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; vertical-align: middle;
+}
+.status-pill.open { background: #fde7e5; color: #8c1d18; }
+.status-pill.confirmed { background: #6b0f0f; color: #fff; }
+.status-pill.reviewed { background: #e3f1e8; color: #1f6b3a; }
+
+.alert-card {
+  border: 1.5px solid rgba(128, 128, 128, .4); border-left: 5px solid #b3261e;
+  border-radius: 8px; padding: 12px 14px; margin: 12px 0;
+}
+.alert-card.confirmed { border-left-color: #6b0f0f; }
+.alert-card h4 { margin: 0 0 4px; font-size: 1rem; }
+.alert-card ul { margin: 6px 0 8px 18px; padding: 0; }
+.alert-card .alert-code { font-family: "JetBrains Mono", monospace; font-size: .8rem; word-break: break-all; opacity: .8; }
+
+.unit-actions, .alert-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.btn.sm { padding: 6px 12px; font-size: .85rem; }
+
+.privacy-note { font-size: .85rem; opacity: .75; margin-top: 14px; line-height: 1.45; }
+.small-note { font-size: .9rem; opacity: .8; line-height: 1.45; }
+.status-line { margin-top: 10px; min-height: 1.3em; font-size: .92rem; white-space: pre-line; }
+.ok-text { color: #1f6b3a; }
+input[readonly] { opacity: .75; }

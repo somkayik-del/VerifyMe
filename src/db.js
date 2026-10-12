@@ -70,12 +70,22 @@ db.exec(`
     lng        REAL
   );
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id TEXT NOT NULL REFERENCES companies(id),
+    unit_code  TEXT,
+    type       TEXT NOT NULL,
+    message    TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    read_at    INTEGER
+  );
+
   CREATE INDEX IF NOT EXISTS idx_scans_unit_code_at ON scans(unit_code, at);
   CREATE INDEX IF NOT EXISTS idx_batches_company ON batches(company_id);
   CREATE INDEX IF NOT EXISTS idx_units_batch ON units(batch_id);
 `);
 
-// --- Upgrades for databases created before the device/location rules ---
+// --- Upgrades for databases created by earlier versions ---
 // Safe to run every start: a column is only added if it isn't there yet,
 // and existing data is never touched.
 function addColumnIfMissing(table, column, definition) {
@@ -85,12 +95,30 @@ function addColumnIfMissing(table, column, definition) {
   }
 }
 
+// scans: who/where
 addColumnIfMissing('scans', 'device_id', 'TEXT');      // anonymous per-browser ID
 addColumnIfMissing('scans', 'accuracy', 'REAL');       // location error radius, metres
-addColumnIfMissing('units', 'last_lat', 'REAL');       // where the last scan happened
+
+// units: last scan + duplicate-flag state
+addColumnIfMissing('units', 'last_lat', 'REAL');
 addColumnIfMissing('units', 'last_lng', 'REAL');
 addColumnIfMissing('units', 'last_accuracy', 'REAL');
+addColumnIfMissing('units', 'flag_status', 'TEXT');    // NULL | 'open' | 'reviewed' | 'confirmed'
+addColumnIfMissing('units', 'flag_reasons', 'TEXT');   // JSON: [{ code, text }]
+addColumnIfMissing('units', 'flagged_at', 'INTEGER');
+addColumnIfMissing('units', 'reviewed_at', 'INTEGER');
+addColumnIfMissing('units', 'review_outcome', 'TEXT'); // 'cleared' | 'confirmed'
+addColumnIfMissing('units', 'review_note', 'TEXT');
 
-db.exec('CREATE INDEX IF NOT EXISTS idx_scans_unit_device ON scans(unit_code, device_id, at)');
+// companies: where to send alerts
+addColumnIfMissing('companies', 'alert_email', 'TEXT');
+addColumnIfMissing('companies', 'webhook_url', 'TEXT');
+addColumnIfMissing('companies', 'webhook_secret', 'TEXT');
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_scans_unit_device ON scans(unit_code, device_id, at);
+  CREATE INDEX IF NOT EXISTS idx_notifications_company ON notifications(company_id, read_at, created_at);
+  CREATE INDEX IF NOT EXISTS idx_units_company_flag ON units(company_id, flag_status);
+`);
 
 module.exports = db;

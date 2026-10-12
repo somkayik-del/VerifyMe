@@ -1,13 +1,16 @@
 const express = require('express');
 const db = require('../db');
-const { computeFlags, FLAG_WINDOW_MS, MAX_ACCURACY_M } = require('../helpers');
+const { MAX_ACCURACY_M } = require('../helpers');
+const { CONFIG, evaluate, parseReasons } = require('../detection');
+const { notifyFlag } = require('../notify');
+const { clientIp, checkGuessBlock, recordInvalidCode } = require('../security');
 
 const router = express.Router();
 
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
 
-// Public — no auth. This is the endpoint a consumer's scan/manual entry calls.
+// Public - no auth. This is the endpoint a consumer's scan/manual entry calls.
 router.post('/', (req, res) => {
   const { code, lat, lng, accuracy, deviceId } = req.body || {};
   if (!code) return res.status(400).json({ error: 'Code is required.' });
@@ -30,10 +33,22 @@ router.post('/', (req, res) => {
     });
   }
 
+  const device = String(deviceId);
+  const ip = clientIp(req);
+
+  // Stop people from trying lots of invented codes.
+  const wait = checkGuessBlock(device, ip);
+  if (wait) {
+    return res.status(429).json({
+      error: `Too many unknown codes were entered. Please wait ${Math.ceil(wait / 60)} minute(s), then check the code carefully.`
+    });
+  }
+
   const normalizedCode = String(code).trim().toUpperCase();
   const unit = db.prepare('SELECT * FROM units WHERE code = ?').get(normalizedCode);
 
   if (!unit) {
+    recordInvalidCode(device, ip);
     return res.json({ found: false });
   }
 
@@ -41,7 +56,6 @@ router.post('/', (req, res) => {
   const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(unit.company_id);
 
   const now = Date.now();
-  const device = String(deviceId);
 
   // When was it scanned before this time? (null if this is the first scan)
   const previous = db.prepare('SELECT at FROM scans WHERE unit_code = ? ORDER BY at DESC LIMIT 1').get(unit.code);
@@ -60,17 +74,48 @@ router.post('/', (req, res) => {
     ).run(now, lat, lng, accuracy, unit.code);
   })();
 
-  // Only scans inside the look-back window are needed to apply the rules.
-  const windowScans = db.prepare(
-    `SELECT at, lat, lng, accuracy, device_id
-     FROM scans WHERE unit_code = ? AND at >= ?
-     ORDER BY at DESC LIMIT 2000`
-  ).all(unit.code, now - FLAG_WINDOW_MS);
-  const flags = computeFlags(windowScans, now);
+  // ---- Duplicate detection ----
+  // flag_status: NULL (never flagged) | 'open' | 'reviewed' (false alarm) | 'confirmed' (copy)
+  let status = unit.flag_status || null;
+  let stored = parseReasons(unit.flag_reasons);
 
-  db.prepare(
-    'UPDATE units SET last_flag_velocity = ?, last_flag_geo = ?, last_flag_detail = ? WHERE code = ?'
-  ).run(0, flags.geoJump ? 1 : 0, flags.geoJumpDetail, unit.code);
+  if (status !== 'confirmed') {
+    // After a false alarm is cleared, only newer scans count.
+    const since = status === 'reviewed' ? (unit.reviewed_at || 0) : 0;
+    const lower = Math.max(now - CONFIG.lookbackMs, since);
+    const scans = db.prepare(
+      `SELECT at, lat, lng, accuracy, device_id
+       FROM scans WHERE unit_code = ? AND at >= ?
+       ORDER BY at DESC LIMIT 5000`
+    ).all(unit.code, lower);
+    const current = { at: now, lat, lng, accuracy, device_id: device };
+
+    const reasons = evaluate({ scans, current, now, since });
+
+    if (reasons.length) {
+      const known = new Set(status === 'open' ? stored.map(r => r.code) : []);
+      const fresh = reasons.filter(r => !known.has(r.code));
+
+      if (status !== 'open' || fresh.length) {
+        // Keep earlier reasons too: a flag stays on until the company reviews it.
+        const merged = new Map();
+        if (status === 'open') stored.forEach(r => merged.set(r.code, r));
+        reasons.forEach(r => merged.set(r.code, r));
+        stored = [...merged.values()];
+
+        db.prepare(
+          `UPDATE units SET flag_status = 'open', flag_reasons = ?,
+             flagged_at = CASE WHEN ? = 'open' THEN flagged_at ELSE ? END
+           WHERE code = ?`
+        ).run(JSON.stringify(stored), status || '', now, unit.code);
+
+        status = 'open';
+        notifyFlag(company, unit, batch, stored);
+      }
+    }
+  }
+
+  const outStatus = status === 'confirmed' ? 'confirmed' : status === 'open' ? 'unusual' : 'genuine';
 
   res.json({
     found: true,
@@ -82,9 +127,10 @@ router.post('/', (req, res) => {
       serialNumber: unit.serial_number
     },
     verifyCount: unit.verify_count + 1,
-    // Consumers only see WHEN it was last checked; exact locations stay with the company.
+    // Shoppers only see WHEN it was last checked; exact locations stay with the company.
     previousScanAt: previous ? previous.at : null,
-    flags
+    status: outStatus,
+    reasons: outStatus === 'unusual' ? stored.map(r => r.text) : []
   });
 });
 

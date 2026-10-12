@@ -33,6 +33,18 @@ async function api(path, options = {}) {
   return body;
 }
 
+/* ---------- small helpers ---------- */
+function escapeHTML(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str === undefined || str === null ? '' : str);
+  return d.innerHTML;
+}
+// For values placed inside HTML attributes (quotes must be escaped too).
+function escapeAttr(str) {
+  return escapeHTML(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function formatWhen(ms) { return new Date(ms).toLocaleString(); }
+
 /* ---------- view / tab switching ---------- */
 function showView(name) {
   document.getElementById('view-verify').classList.toggle('active', name === 'verify');
@@ -51,9 +63,15 @@ function showAuthTab(name) {
 /* ---------- auth ---------- */
 async function doRegister() {
   const name = document.getElementById('regName').value.trim();
-  const pin = document.getElementById('regPin').value.trim();
+  const pin = document.getElementById('regPin').value; // the server still calls this field "pin"
   const errEl = document.getElementById('regError');
   errEl.style.display = 'none';
+
+  if (pin.length < 8) {
+    errEl.textContent = 'Choose a password of at least 8 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
 
   try {
     const data = await api('/auth/register', { method: 'POST', body: JSON.stringify({ name, pin }) });
@@ -67,7 +85,7 @@ async function doRegister() {
 
 async function doLogin() {
   const name = document.getElementById('loginName').value.trim();
-  const pin = document.getElementById('loginPin').value.trim();
+  const pin = document.getElementById('loginPin').value;
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
 
@@ -83,6 +101,7 @@ async function doLogin() {
 
 function doLogout() {
   setSession(null);
+  batchesCache = []; unitsCache = {}; openBatchId = null; alertsCache = [];
   renderCompanyView();
 }
 
@@ -90,6 +109,17 @@ function doLogout() {
 let batchesCache = [];
 let openBatchId = null;
 let unitsCache = {}; // batchId -> units[]
+let alertsCache = [];
+
+function showDashTab(name) {
+  for (const n of ['batches', 'alerts', 'settings']) {
+    const cap = n[0].toUpperCase() + n.slice(1);
+    document.getElementById('dashPanel' + cap).style.display = n === name ? 'block' : 'none';
+    document.getElementById('dashTab' + cap).classList.toggle('active', n === name);
+  }
+  if (name === 'alerts') loadAlerts(true);
+  if (name === 'settings') loadSettings();
+}
 
 async function renderCompanyView() {
   const authBlock = document.getElementById('authBlock');
@@ -118,6 +148,7 @@ async function renderCompanyView() {
     `${batchesCache.length} batch${batchesCache.length === 1 ? '' : 'es'} · ${totalUnits} unit${totalUnits === 1 ? '' : 's'} registered`;
 
   await renderBatchList();
+  refreshAlertBadge();
 }
 
 async function renderBatchList() {
@@ -129,7 +160,7 @@ async function renderBatchList() {
 
   let html = '<table class="ledger"><thead><tr><th>Product</th><th>Batch #</th><th>Mfg. date</th><th>Units</th></tr></thead><tbody>';
   for (const b of batchesCache) {
-    const flaggedInBatch = (unitsCache[b.id] || []).filter(u => u.flags.geoJump).length;
+    const flaggedInBatch = (unitsCache[b.id] || []).filter(u => u.flag.status === 'open' || u.flag.status === 'confirmed').length;
     html += `<tr class="batch-row" onclick="toggleBatch('${b.id}')">
       <td>${escapeHTML(b.productName)}</td>
       <td class="mono">${escapeHTML(b.batchNumber)}</td>
@@ -166,11 +197,32 @@ async function loadUnits(batchId) {
 // "12 Oct 2026, 3:41 PM · 6.52410, 3.37920 (open map)" or "Not scanned yet"
 function formatLastScan(u) {
   if (!u.lastVerifiedAt) return 'Not scanned yet';
-  const when = new Date(u.lastVerifiedAt).toLocaleString();
+  const when = formatWhen(u.lastVerifiedAt);
   if (u.lastLat == null || u.lastLng == null) return escapeHTML(when);
   const lat = Number(u.lastLat).toFixed(5);
   const lng = Number(u.lastLng).toFixed(5);
   return `${escapeHTML(when)} · <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" rel="noopener">${lat}, ${lng} (open map)</a>`;
+}
+
+function statusPill(status) {
+  if (status === 'open') return '<span class="status-pill open">⚠ Possible duplicate</span>';
+  if (status === 'confirmed') return '<span class="status-pill confirmed">✕ Confirmed copy</span>';
+  if (status === 'reviewed') return '<span class="status-pill reviewed">✓ Reviewed</span>';
+  return '';
+}
+
+function reviewButtons(code, status) {
+  const c = escapeAttr(code);
+  if (status === 'open') {
+    return `<div class="unit-actions">
+      <button class="btn secondary sm" data-act="cleared" data-code="${c}">False alarm</button>
+      <button class="btn sm" data-act="confirmed" data-code="${c}">Confirm it's a copy</button>
+    </div>`;
+  }
+  if (status === 'confirmed') {
+    return `<div class="unit-actions"><button class="btn secondary sm" data-act="cleared" data-code="${c}">Remove confirmation</button></div>`;
+  }
+  return '';
 }
 
 function renderUnitsPanelInner(batch) {
@@ -200,17 +252,20 @@ function renderUnitsPanelInner(batch) {
     inner += '<p class="empty-note">No units registered in this batch yet.</p>';
   } else {
     inner += units.map(u => {
-      const flagged = u.flags.geoJump;
+      const f = u.flag || {};
+      const qr = `${API_BASE}/units/${encodeURIComponent(u.code)}/qr.png`;
       return `
       <div class="unit-card">
-        <div class="qr-thumb"><img src="${API_BASE}/units/${encodeURIComponent(u.code)}/qr.png" alt="QR for ${escapeHTML(u.code)}"></div>
+        <div class="qr-thumb"><img src="${qr}" alt="QR for ${escapeAttr(u.code)}"></div>
         <div style="flex:1; min-width:0;">
-          <div class="unit-code">${escapeHTML(u.code)} ${flagged ? '<span class="flag-badge">⚠ Possible duplicate</span>' : ''}</div>
+          <div class="unit-code">${escapeHTML(u.code)} ${statusPill(f.status)}</div>
           <div class="unit-meta">Serial ${escapeHTML(u.serialNumber)} · checked ${u.verifyCount} time${u.verifyCount === 1 ? '' : 's'}</div>
           <div class="unit-meta">Last scanned: ${formatLastScan(u)}</div>
-          ${flagged && u.flags.geoJumpDetail ? `<div class="unit-meta">${escapeHTML(u.flags.geoJumpDetail)}</div>` : ''}
+          ${f.status === 'open' && f.reasons.length ? `<div class="unit-meta">${escapeHTML(f.reasons.join('; '))}</div>` : ''}
+          ${f.note ? `<div class="unit-meta">Note: ${escapeHTML(f.note)}</div>` : ''}
+          ${reviewButtons(u.code, f.status)}
         </div>
-        <a class="btn ghost" href="${API_BASE}/units/${encodeURIComponent(u.code)}/qr.png" download="${u.code}.png">Download</a>
+        <a class="btn ghost" href="${qr}" download="${escapeAttr(u.code)}.png">Download</a>
       </div>`;
     }).join('');
   }
@@ -277,10 +332,144 @@ async function createBatch() {
   }
 }
 
-function escapeHTML(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
+/* ---------- alerts ---------- */
+function setAlertBadge(openCount) {
+  const el = document.getElementById('alertCount');
+  el.textContent = openCount;
+  el.style.display = openCount > 0 ? 'inline-block' : 'none';
+}
+
+async function refreshAlertBadge() {
+  try {
+    const data = await api('/company/alerts');
+    alertsCache = data.alerts;
+    setAlertBadge(data.alerts.filter(a => a.status === 'open').length);
+  } catch (e) {}
+}
+
+async function loadAlerts(markRead) {
+  const wrap = document.getElementById('alertsWrap');
+  try {
+    const data = await api('/company/alerts');
+    alertsCache = data.alerts;
+    setAlertBadge(data.alerts.filter(a => a.status === 'open').length);
+    renderAlerts();
+    if (markRead && data.unread > 0) api('/company/alerts/read', { method: 'POST' }).catch(() => {});
+  } catch (e) {
+    if (e.status === 401) { setSession(null); renderCompanyView(); return; }
+    wrap.innerHTML = `<p class="error-text">Could not load alerts: ${escapeHTML(e.message)}</p>`;
+  }
+}
+
+function renderAlerts() {
+  const wrap = document.getElementById('alertsWrap');
+  if (alertsCache.length === 0) {
+    wrap.innerHTML = '<p class="empty-note">No alerts. Codes that look copied will appear here.</p>';
+    return;
+  }
+  wrap.innerHTML = alertsCache.map(a => {
+    const last = a.lastVerifiedAt
+      ? `${escapeHTML(formatWhen(a.lastVerifiedAt))}${a.lastLat != null ? ` · <a href="https://www.google.com/maps?q=${Number(a.lastLat).toFixed(5)},${Number(a.lastLng).toFixed(5)}" target="_blank" rel="noopener">open map</a>` : ''}`
+      : 'Not scanned yet';
+    return `<div class="alert-card ${a.status === 'confirmed' ? 'confirmed' : ''}">
+      <h4>${escapeHTML(a.productName)} · serial ${escapeHTML(a.serialNumber)} ${statusPill(a.status)}</h4>
+      <div class="alert-code">${escapeHTML(a.code)}</div>
+      ${a.status === 'open' && a.reasons.length ? `<ul>${a.reasons.map(r => `<li>${escapeHTML(r)}</li>`).join('')}</ul>` : ''}
+      <div class="unit-meta">Batch ${escapeHTML(a.batchNumber)} · checked ${a.verifyCount} time${a.verifyCount === 1 ? '' : 's'}</div>
+      <div class="unit-meta">Last scanned: ${last}</div>
+      ${a.flaggedAt ? `<div class="unit-meta">Flagged: ${escapeHTML(formatWhen(a.flaggedAt))}</div>` : ''}
+      ${a.note ? `<div class="unit-meta">Note: ${escapeHTML(a.note)}</div>` : ''}
+      ${reviewButtons(a.code, a.status).replace('unit-actions', 'alert-actions')}
+    </div>`;
+  }).join('');
+}
+
+async function reviewUnit(code, outcome) {
+  const question = outcome === 'confirmed'
+    ? 'Confirm this code was copied? Shoppers who check it will be told not to trust the product.'
+    : 'Mark this as cleared? The flag is removed, and only newer scans count from now on.';
+  if (!window.confirm(question)) return;
+  const note = window.prompt('Add a note (optional):', '');
+  if (note === null) return;
+  try {
+    await api(`/units/${encodeURIComponent(code)}/review`, { method: 'POST', body: JSON.stringify({ outcome, note }) });
+    unitsCache = {};
+    if (openBatchId) await loadUnits(openBatchId);
+    await loadAlerts(false);
+    await renderBatchList();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// One listener handles every review button (alerts list and batch panels).
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === 'cleared' || act === 'confirmed') reviewUnit(btn.dataset.code, act);
+});
+
+/* ---------- settings ---------- */
+function showSettingsStatus(text, ok) {
+  const el = document.getElementById('setStatus');
+  el.textContent = text;
+  el.className = 'status-line' + (ok ? ' ok-text' : '');
+  if (ok === false) el.className = 'status-line error-text';
+}
+
+function fillSettings(s) {
+  document.getElementById('setAlertEmail').value = s.alertEmail || '';
+  document.getElementById('setWebhookUrl').value = s.webhookUrl || '';
+  document.getElementById('setWebhookSecret').value = s.webhookSecret || '';
+  document.getElementById('setSecretField').style.display = s.webhookSecret ? 'block' : 'none';
+  document.getElementById('setEmailNote').textContent = s.emailConfigured
+    ? ''
+    : 'Email sending is not switched on for this server yet, so alerts will only appear in the dashboard and webhook.';
+}
+
+async function loadSettings() {
+  showSettingsStatus('', null);
+  try {
+    fillSettings(await api('/company/settings'));
+  } catch (e) {
+    if (e.status === 401) { setSession(null); renderCompanyView(); return; }
+    showSettingsStatus('Could not load settings: ' + e.message, false);
+  }
+}
+
+async function saveSettings() {
+  showSettingsStatus('Saving…', null);
+  try {
+    const s = await api('/company/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        alertEmail: document.getElementById('setAlertEmail').value.trim(),
+        webhookUrl: document.getElementById('setWebhookUrl').value.trim()
+      })
+    });
+    fillSettings(s);
+    showSettingsStatus('Saved.', true);
+  } catch (e) {
+    showSettingsStatus(e.message, false);
+  }
+}
+
+function describeResult(label, r) {
+  if (!r) return `${label}: no result`;
+  if (r.status === 'sent') return `${label}: sent`;
+  if (r.status === 'skipped') return `${label}: not used (${r.detail})`;
+  return `${label}: failed (${r.detail})`;
+}
+
+async function sendTestAlert() {
+  showSettingsStatus('Sending a test alert…', null);
+  try {
+    const r = await api('/company/settings/test', { method: 'POST' });
+    showSettingsStatus(describeResult('Email', r.email) + '\n' + describeResult('Webhook', r.webhook), true);
+  } catch (e) {
+    showSettingsStatus(e.message, false);
+  }
 }
 
 /* ---------- device ID ---------- */
@@ -424,13 +613,27 @@ async function verifyCode(rawCode) {
     return;
   }
 
-  const { product, verifyCount, flags, previousScanAt } = data;
-  const isSuspicious = flags.geoJump;
+  const { product, verifyCount, previousScanAt } = data;
+  const status = data.status || 'genuine'; // 'genuine' | 'unusual' | 'confirmed'
+  const reasons = data.reasons || [];
 
-  stage.className = 'seal-stage ' + (isSuspicious ? 'flagged' : 'genuine');
-  ring.textContent = isSuspicious ? '!' : '✓';
-  headline.textContent = isSuspicious ? 'Genuine code — unusual activity' : 'Genuine';
-  sub.textContent = `Registered by ${product.companyName}.`;
+  if (status === 'confirmed') {
+    stage.className = 'seal-stage notfound';
+    ring.textContent = '✕';
+    headline.textContent = 'Do not trust this product';
+    sub.textContent = `${product.companyName} has confirmed that this code was copied onto other products.`;
+  } else if (status === 'unusual') {
+    stage.className = 'seal-stage flagged';
+    ring.textContent = '!';
+    headline.textContent = 'Genuine code — unusual activity';
+    sub.textContent = `Registered by ${product.companyName}.`;
+  } else {
+    stage.className = 'seal-stage genuine';
+    ring.textContent = '✓';
+    headline.textContent = 'Genuine';
+    sub.textContent = `Registered by ${product.companyName}.`;
+  }
+
   details.style.display = 'grid';
   details.innerHTML = `
     <dt>Product</dt><dd>${escapeHTML(product.productName)}</dd>
@@ -439,12 +642,12 @@ async function verifyCode(rawCode) {
     <dt>Manufactured</dt><dd>${escapeHTML(product.manufacturingDate)}</dd>
     <dt>Serial</dt><dd>${escapeHTML(product.serialNumber)}</dd>
     <dt>Checked</dt><dd>${verifyCount} time${verifyCount === 1 ? '' : 's'}</dd>
-    <dt>Previous check</dt><dd>${previousScanAt ? escapeHTML(new Date(previousScanAt).toLocaleString()) : 'First time checked'}</dd>
+    <dt>Previous check</dt><dd>${previousScanAt ? escapeHTML(formatWhen(previousScanAt)) : 'First time checked'}</dd>
   `;
 
-  if (isSuspicious) {
+  if (status === 'unusual') {
     warning.style.display = 'block';
-    warning.textContent = `This code is genuine, but its recent activity looks unusual: ${flags.geoJumpDetail || 'it was scanned from far-apart places by several devices'}. This can happen when the same code has been copied onto more than one physical product.`;
+    warning.textContent = `This code is genuine, but its recent activity looks unusual: ${reasons.join('; ') || 'it was checked in ways that are not normal'}. This can happen when the same code has been copied onto more than one physical product.`;
   } else {
     warning.style.display = 'none';
   }
