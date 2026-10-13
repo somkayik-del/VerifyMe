@@ -10,16 +10,28 @@ function signToken(companyId) {
   return jwt.sign({ companyId }, JWT_SECRET, { expiresIn: '30d' });
 }
 
+// Distributors and retailers get their own kind of token.
+function signPartnerToken(partnerId) {
+  return jwt.sign({ partnerId, kind: 'partner' }, JWT_SECRET, { expiresIn: '14d' });
+}
+
+function bearer(req) {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
 // Reads "Authorization: Bearer <token>", attaches req.companyId, or 401s.
 function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const token = bearer(req);
   if (!token) return res.status(401).json({ error: 'Missing or invalid Authorization header.' });
 
   let payload;
   try {
     payload = jwt.verify(token, JWT_SECRET);
   } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired session — please log in again.' });
+  }
+  if (!payload.companyId) {
     return res.status(401).json({ error: 'Invalid or expired session — please log in again.' });
   }
 
@@ -35,4 +47,32 @@ function requireAuth(req, res, next) {
   next();
 }
 
-module.exports = { signToken, requireAuth };
+// For the distributor / retailer portal. Attaches req.partner.
+function requirePartner(req, res, next) {
+  const token = bearer(req);
+  if (!token) return res.status(401).json({ error: 'Please log in with your access code.' });
+
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return res.status(401).json({ error: 'Your session expired — please log in again.' });
+  }
+  if (!payload.partnerId) {
+    return res.status(401).json({ error: 'Your session expired — please log in again.' });
+  }
+
+  const partner = db.prepare(
+    `SELECT p.*, c.name AS company_name
+     FROM partners p JOIN companies c ON c.id = p.company_id
+     WHERE p.id = ? AND p.active = 1`
+  ).get(payload.partnerId);
+  if (!partner) {
+    return res.status(401).json({ error: 'This access has been switched off — please contact the manufacturer.' });
+  }
+
+  req.partner = partner;
+  next();
+}
+
+module.exports = { signToken, signPartnerToken, requireAuth, requirePartner };

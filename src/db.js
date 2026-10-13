@@ -80,6 +80,34 @@ db.exec(`
     read_at    INTEGER
   );
 
+  -- Distributors and retailers a company lets scan products as they pass through.
+  CREATE TABLE IF NOT EXISTS partners (
+    id          TEXT PRIMARY KEY,
+    company_id  TEXT NOT NULL REFERENCES companies(id),
+    name        TEXT NOT NULL COLLATE NOCASE,
+    role        TEXT NOT NULL,
+    access_hash TEXT NOT NULL UNIQUE,
+    active      INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    last_seen_at INTEGER,
+    UNIQUE(company_id, name)
+  );
+
+  -- Chain of custody: every time a partner records a unit moving.
+  CREATE TABLE IF NOT EXISTS custody_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  TEXT NOT NULL REFERENCES companies(id),
+    partner_id  TEXT NOT NULL REFERENCES partners(id),
+    unit_code   TEXT NOT NULL REFERENCES units(code),
+    action      TEXT NOT NULL,
+    at          INTEGER NOT NULL,
+    lat         REAL,
+    lng         REAL,
+    accuracy    REAL,
+    out_of_area INTEGER NOT NULL DEFAULT 0,
+    reviewed_at INTEGER
+  );
+
   CREATE INDEX IF NOT EXISTS idx_scans_unit_code_at ON scans(unit_code, at);
   CREATE INDEX IF NOT EXISTS idx_batches_company ON batches(company_id);
   CREATE INDEX IF NOT EXISTS idx_units_batch ON units(batch_id);
@@ -115,7 +143,24 @@ addColumnIfMissing('companies', 'alert_email', 'TEXT');
 addColumnIfMissing('companies', 'webhook_url', 'TEXT');
 addColumnIfMissing('companies', 'webhook_secret', 'TEXT');
 
+// batches: where this batch is meant to be sold (optional)
+addColumnIfMissing('batches', 'sales_lat', 'REAL');
+addColumnIfMissing('batches', 'sales_lng', 'REAL');
+addColumnIfMissing('batches', 'sales_radius_km', 'REAL');
+addColumnIfMissing('batches', 'sales_label', 'TEXT');
+
+// companies: assumptions for the impact estimate
+addColumnIfMissing('companies', 'roi_currency', 'TEXT');
+addColumnIfMissing('companies', 'roi_price', 'REAL');
+addColumnIfMissing('companies', 'roi_fake_units', 'REAL');
+addColumnIfMissing('companies', 'roi_substitution_pct', 'REAL');
+addColumnIfMissing('companies', 'roi_monthly_cost', 'REAL');
+
 db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_custody_unit ON custody_events(unit_code, at);
+  CREATE INDEX IF NOT EXISTS idx_custody_partner ON custody_events(partner_id, at);
+  CREATE INDEX IF NOT EXISTS idx_custody_company_area ON custody_events(company_id, out_of_area, reviewed_at);
+  CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id);
   CREATE INDEX IF NOT EXISTS idx_scans_unit_device ON scans(unit_code, device_id, at);
   CREATE INDEX IF NOT EXISTS idx_notifications_company ON notifications(company_id, read_at, created_at);
   CREATE INDEX IF NOT EXISTS idx_units_company_flag ON units(company_id, flag_status);

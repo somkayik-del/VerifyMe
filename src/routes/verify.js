@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { MAX_ACCURACY_M } = require('../helpers');
 const { CONFIG, evaluate, parseReasons } = require('../detection');
-const { notifyFlag } = require('../notify');
+const { raiseFlag } = require('../flags');
 const { clientIp, checkGuessBlock, recordInvalidCode } = require('../security');
 
 const router = express.Router();
@@ -91,29 +91,16 @@ router.post('/', (req, res) => {
     const current = { at: now, lat, lng, accuracy, device_id: device };
 
     const reasons = evaluate({ scans, current, now, since });
-
-    if (reasons.length) {
-      const known = new Set(status === 'open' ? stored.map(r => r.code) : []);
-      const fresh = reasons.filter(r => !known.has(r.code));
-
-      if (status !== 'open' || fresh.length) {
-        // Keep earlier reasons too: a flag stays on until the company reviews it.
-        const merged = new Map();
-        if (status === 'open') stored.forEach(r => merged.set(r.code, r));
-        reasons.forEach(r => merged.set(r.code, r));
-        stored = [...merged.values()];
-
-        db.prepare(
-          `UPDATE units SET flag_status = 'open', flag_reasons = ?,
-             flagged_at = CASE WHEN ? = 'open' THEN flagged_at ELSE ? END
-           WHERE code = ?`
-        ).run(JSON.stringify(stored), status || '', now, unit.code);
-
-        status = 'open';
-        notifyFlag(company, unit, batch, stored);
-      }
-    }
+    const raised = raiseFlag(unit.code, reasons, now);
+    if (raised) { status = raised.status; stored = raised.reasons; }
   }
+
+  // The product's journey so far, as recorded by distributors and retailers.
+  const journey = db.prepare(
+    `SELECT e.action, e.at, p.name AS partner_name, p.role
+     FROM custody_events e JOIN partners p ON p.id = e.partner_id
+     WHERE e.unit_code = ? ORDER BY e.at DESC LIMIT 8`
+  ).all(unit.code).reverse();
 
   const outStatus = status === 'confirmed' ? 'confirmed' : status === 'open' ? 'unusual' : 'genuine';
 
@@ -130,7 +117,8 @@ router.post('/', (req, res) => {
     // Shoppers only see WHEN it was last checked; exact locations stay with the company.
     previousScanAt: previous ? previous.at : null,
     status: outStatus,
-    reasons: outStatus === 'unusual' ? stored.map(r => r.text) : []
+    reasons: outStatus === 'unusual' ? stored.map(r => r.text) : [],
+    journey: journey.map(j => ({ action: j.action, at: j.at, partner: j.partner_name, role: j.role }))
   });
 });
 

@@ -40,3 +40,47 @@
 .status-line { margin-top: 10px; min-height: 1.3em; font-size: .92rem; white-space: pre-line; }
 .ok-text { color: #1f6b3a; }
 input[readonly] { opacity: .75; }
+
+/* ---- Round 2: partners, trade portal, analytics ---- */
+select {
+  font: inherit; color: inherit; padding: 10px 12px; width: 100%;
+  border: 1.5px solid rgba(128, 128, 128, .5); border-radius: 6px; background: transparent;
+}
+.an-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.an-head select { width: auto; }
+.an-sub { margin: 18px 0 6px; font-size: .95rem; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin: 12px 0; }
+.stat { border: 1.5px solid rgba(128, 128, 128, .35); border-radius: 8px; padding: 10px 12px; }
+.stat .n { font-size: 1.5rem; font-weight: 600; line-height: 1.2; }
+.stat .l { font-size: .82rem; opacity: .75; }
+.stat.warn .n { color: #b3261e; }
+
+.chart-svg { width: 100%; height: auto; display: block; }
+.map-box { height: 340px; border-radius: 8px; overflow: hidden; margin: 10px 0; border: 1.5px solid rgba(128, 128, 128, .35); }
+.hot-row { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid rgba(128, 128, 128, .25); font-size: .92rem; }
+
+.code-reveal {
+  margin-top: 14px; padding: 14px; border-radius: 8px;
+  border: 2px dashed #b45309; background: rgba(180, 83, 9, .08);
+}
+.code-reveal .big { font-family: "JetBrains Mono", monospace; font-size: 1.5rem; font-weight: 600; letter-spacing: .06em; margin: 6px 0; word-break: break-all; }
+
+.partner-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .25); }
+.partner-row .who { font-weight: 600; }
+.status-pill.off { background: #eceae4; color: #55524a; }
+
+.trade-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.trade-actions button {
+  font: inherit; color: inherit; cursor: pointer; padding: 10px 16px; border-radius: 999px;
+  border: 1.5px solid rgba(128, 128, 128, .5); background: transparent;
+}
+.trade-actions button.active { font-weight: 600; border-color: currentColor; background: rgba(128, 128, 128, .2); }
+.trade-result { margin-top: 14px; padding: 12px 14px; border-radius: 8px; border: 2px solid #1f6b3a; }
+.trade-result.warn { border-color: #b45309; }
+.trade-result.bad { border-color: #b3261e; }
+.trade-result ul { margin: 6px 0 0 18px; padding: 0; }
+
+.batch-tools { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(128, 128, 128, .25); }
+.trail-box { margin-top: 6px; font-size: .88rem; }
+.trail-box div { padding: 3px 0; }

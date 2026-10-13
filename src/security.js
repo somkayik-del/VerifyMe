@@ -108,6 +108,25 @@ function registerRules(req, res, next) {
   next();
 }
 
+/* ---------- Distributor / retailer portal ---------- */
+const tradeLimiter = createLimiter({ windowMs: 60000, max: 120 });
+const tradeLoginBlocker = createBlocker({ windowMs: 15 * 60000, maxFailures: 10, blockMs: 15 * 60000 });
+
+function tradeLoginGuard(req, res, next) {
+  const ip = clientIp(req);
+  const wait = tradeLoginBlocker.isBlocked(ip);
+  if (wait) {
+    return res.status(429).json({
+      error: `Too many wrong access codes. Please try again in ${Math.ceil(wait / 60)} minute(s).`
+    });
+  }
+  res.on('finish', () => {
+    if (res.statusCode === 401) tradeLoginBlocker.fail(ip);
+    else if (res.statusCode >= 200 && res.statusCode < 300) tradeLoginBlocker.clear(ip);
+  });
+  next();
+}
+
 /* ---------- Code-guessing protection (for /api/verify) ---------- */
 // 5 unknown codes from one device in 10 minutes, or 30 from one connection,
 // pauses checking for 30 minutes. (The connection limit is higher because many
@@ -126,6 +145,6 @@ function recordInvalidCode(deviceId, ip) {
 module.exports = {
   clientIp, createLimiter, createBlocker,
   apiLimiter, verifyLimiter, registerLimiter,
-  loginGuard, registerRules,
+  loginGuard, registerRules, tradeLimiter, tradeLoginGuard,
   checkGuessBlock, recordInvalidCode
 };

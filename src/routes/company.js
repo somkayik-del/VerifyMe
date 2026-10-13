@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { requireAuth } = require('../auth');
 const { parseReasons } = require('../detection');
+const { distanceKm } = require('../helpers');
 const { isSafeWebhookUrl, newWebhookSecret, deliver, emailConfigured } = require('../notify');
 
 const router = express.Router();
@@ -37,8 +38,29 @@ router.get('/company/alerts', requireAuth, (req, res) => {
     'SELECT COUNT(*) AS n FROM notifications WHERE company_id = ? AND read_at IS NULL'
   ).get(req.companyId).n;
 
+  // Shipments recorded outside a batch's sales area that nobody has dismissed yet.
+  const diversions = db.prepare(
+    `SELECT e.id, e.action, e.at, e.lat, e.lng, p.name AS partner_name, p.role,
+            u.code, u.serial_number, b.product_name, b.batch_number, b.sales_lat, b.sales_lng, b.sales_radius_km, b.sales_label
+     FROM custody_events e
+     JOIN partners p ON p.id = e.partner_id
+     JOIN units u ON u.code = e.unit_code
+     JOIN batches b ON b.id = u.batch_id
+     WHERE e.company_id = ? AND e.out_of_area = 1 AND e.reviewed_at IS NULL
+     ORDER BY e.at DESC LIMIT 100`
+  ).all(req.companyId);
+
   res.json({
     unread,
+    diversions: diversions.map(d => ({
+      id: d.id, action: d.action, at: d.at, lat: d.lat, lng: d.lng,
+      partner: d.partner_name, role: d.role,
+      code: d.code, serialNumber: d.serial_number, productName: d.product_name, batchNumber: d.batch_number,
+      areaLabel: d.sales_label || '',
+      kmOutside: d.sales_lat != null && d.lat != null
+        ? Math.max(1, Math.round(distanceKm(d.lat, d.lng, d.sales_lat, d.sales_lng) - d.sales_radius_km))
+        : null
+    })),
     alerts: rows.map(r => ({
       code: r.code,
       serialNumber: r.serial_number,

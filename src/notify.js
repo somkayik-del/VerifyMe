@@ -98,11 +98,11 @@ function recordNotification(companyId, unitCode, type, message) {
   ).run(companyId, unitCode, type, message, Date.now());
 }
 
-// A unit just became (or gained another reason to be) "possible duplicate".
+// A unit just became (or gained another reason to be) flagged.
 // Saved in the dashboard straight away; email and webhook go out in the background.
 function notifyFlag(company, unit, batch, reasons) {
   const message =
-    `Possible duplicate: ${batch.product_name}, serial ${unit.serial_number} (code ${unit.code}). ` +
+    `Needs attention: ${batch.product_name}, serial ${unit.serial_number} (code ${unit.code}). ` +
     reasons.map(r => r.text).join('; ') + '.';
   recordNotification(company.id, unit.code, 'flag', message);
 
@@ -113,12 +113,34 @@ function notifyFlag(company, unit, batch, reasons) {
     batchNumber: batch.batch_number,
     reasons: reasons.map(r => ({ code: r.code, text: r.text }))
   };
-  deliver(company, 'unit.flagged', `Alert: possible duplicate - ${batch.product_name}`, message, data)
+  deliver(company, 'unit.flagged', `Alert: ${batch.product_name} needs attention`, message, data)
+    .catch(e => console.error('Alert delivery failed:', e.message));
+}
+
+// A distributor or retailer recorded a unit outside the batch's sales area.
+function notifyDiversion(company, unit, batch, partner, action, km) {
+  const where = batch.sales_label ? ` (${batch.sales_label})` : '';
+  const message =
+    `Out of area: ${partner.name} (${partner.role}) recorded "${action}" for ${batch.product_name}, ` +
+    `serial ${unit.serial_number}, about ${km} km outside its sales area${where}.`;
+  recordNotification(company.id, unit.code, 'diversion', message);
+
+  const data = {
+    code: unit.code,
+    serialNumber: unit.serial_number,
+    productName: batch.product_name,
+    batchNumber: batch.batch_number,
+    partner: partner.name,
+    role: partner.role,
+    action,
+    kmOutsideArea: km
+  };
+  deliver(company, 'unit.out_of_area', `Alert: ${batch.product_name} outside its sales area`, message, data)
     .catch(e => console.error('Alert delivery failed:', e.message));
 }
 
 module.exports = {
   isSafeWebhookUrl, newWebhookSecret, sign,
   sendWebhook, sendEmail, emailConfigured,
-  deliver, recordNotification, notifyFlag
+  deliver, recordNotification, notifyFlag, notifyDiversion
 };

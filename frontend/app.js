@@ -17,9 +17,26 @@ function setSession(data) {
   } catch (e) {}
 }
 
-async function api(path, options = {}) {
+// The distributor / retailer portal keeps its own login, separate from the company's.
+let partnerSession = null; // { token, partner: { name, role, companyName, actions } }
+try {
+  const savedPartner = localStorage.getItem('pa_partner');
+  if (savedPartner) partnerSession = JSON.parse(savedPartner);
+} catch (e) {}
+
+function setPartnerSession(data) {
+  partnerSession = data;
+  try {
+    if (partnerSession) localStorage.setItem('pa_partner', JSON.stringify(partnerSession));
+    else localStorage.removeItem('pa_partner');
+  } catch (e) {}
+}
+
+// who: 'company' (default) or 'partner' (the Trade portal)
+async function api(path, options = {}, who = 'company') {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  if (session && session.token) headers.Authorization = 'Bearer ' + session.token;
+  const active = who === 'partner' ? partnerSession : session;
+  if (active && active.token) headers.Authorization = 'Bearer ' + active.token;
 
   const res = await fetch(API_BASE + path, { ...options, headers });
   let body = {};
@@ -47,11 +64,13 @@ function formatWhen(ms) { return new Date(ms).toLocaleString(); }
 
 /* ---------- view / tab switching ---------- */
 function showView(name) {
-  document.getElementById('view-verify').classList.toggle('active', name === 'verify');
-  document.getElementById('view-company').classList.toggle('active', name === 'company');
-  document.getElementById('tabVerifyBtn').classList.toggle('active', name === 'verify');
-  document.getElementById('tabCompanyBtn').classList.toggle('active', name === 'company');
+  for (const n of ['verify', 'company', 'trade']) {
+    const cap = n[0].toUpperCase() + n.slice(1);
+    document.getElementById('view-' + n).classList.toggle('active', n === name);
+    document.getElementById('tab' + cap + 'Btn').classList.toggle('active', n === name);
+  }
   if (name === 'company') renderCompanyView();
+  if (name === 'trade') renderTradeView();
 }
 function showAuthTab(name) {
   document.getElementById('authTabLogin').classList.toggle('active', name === 'login');
@@ -101,7 +120,7 @@ async function doLogin() {
 
 function doLogout() {
   setSession(null);
-  batchesCache = []; unitsCache = {}; openBatchId = null; alertsCache = [];
+  batchesCache = []; unitsCache = {}; openBatchId = null; alertsCache = []; diversionsCache = []; salesAreaCache = {};
   renderCompanyView();
 }
 
@@ -110,14 +129,18 @@ let batchesCache = [];
 let openBatchId = null;
 let unitsCache = {}; // batchId -> units[]
 let alertsCache = [];
+let diversionsCache = [];
+let salesAreaCache = {}; // batchId -> { label, lat, lng, radiusKm } | null
 
 function showDashTab(name) {
-  for (const n of ['batches', 'alerts', 'settings']) {
+  for (const n of ['batches', 'alerts', 'partners', 'analytics', 'settings']) {
     const cap = n[0].toUpperCase() + n.slice(1);
     document.getElementById('dashPanel' + cap).style.display = n === name ? 'block' : 'none';
     document.getElementById('dashTab' + cap).classList.toggle('active', n === name);
   }
   if (name === 'alerts') loadAlerts(true);
+  if (name === 'partners') loadPartners();
+  if (name === 'analytics') loadAnalytics();
   if (name === 'settings') loadSettings();
 }
 
@@ -182,6 +205,9 @@ async function toggleBatch(batchId) {
   if (openBatchId && !unitsCache[openBatchId]) {
     await loadUnits(openBatchId);
   }
+  if (openBatchId && salesAreaCache[openBatchId] === undefined) {
+    await loadSalesArea(openBatchId);
+  }
   await renderBatchList();
 }
 
@@ -227,7 +253,7 @@ function reviewButtons(code, status) {
 
 function renderUnitsPanelInner(batch) {
   const units = unitsCache[batch.id] || [];
-  let inner = `
+  let inner = batchToolsHtml(batch) + `
     <div class="row2" style="margin-bottom:10px;">
       <div>
         <label class="field-label">Add one serial number</label>
@@ -261,9 +287,12 @@ function renderUnitsPanelInner(batch) {
           <div class="unit-code">${escapeHTML(u.code)} ${statusPill(f.status)}</div>
           <div class="unit-meta">Serial ${escapeHTML(u.serialNumber)} · checked ${u.verifyCount} time${u.verifyCount === 1 ? '' : 's'}</div>
           <div class="unit-meta">Last scanned: ${formatLastScan(u)}</div>
+          ${custodyLine(u.custody)}
           ${f.status === 'open' && f.reasons.length ? `<div class="unit-meta">${escapeHTML(f.reasons.join('; '))}</div>` : ''}
           ${f.note ? `<div class="unit-meta">Note: ${escapeHTML(f.note)}</div>` : ''}
           ${reviewButtons(u.code, f.status)}
+          <div class="unit-actions"><button class="btn secondary sm" data-act="trail" data-code="${escapeAttr(u.code)}">Journey</button></div>
+          <div class="trail-box"></div>
         </div>
         <a class="btn ghost" href="${qr}" download="${escapeAttr(u.code)}.png">Download</a>
       </div>`;
@@ -333,17 +362,22 @@ async function createBatch() {
 }
 
 /* ---------- alerts ---------- */
-function setAlertBadge(openCount) {
+function setAlertBadge(count) {
   const el = document.getElementById('alertCount');
-  el.textContent = openCount;
-  el.style.display = openCount > 0 ? 'inline-block' : 'none';
+  el.textContent = count;
+  el.style.display = count > 0 ? 'inline-block' : 'none';
+}
+
+function openAlertCount() {
+  return alertsCache.filter(a => a.status === 'open').length + diversionsCache.length;
 }
 
 async function refreshAlertBadge() {
   try {
     const data = await api('/company/alerts');
     alertsCache = data.alerts;
-    setAlertBadge(data.alerts.filter(a => a.status === 'open').length);
+    diversionsCache = data.diversions || [];
+    setAlertBadge(openAlertCount());
   } catch (e) {}
 }
 
@@ -352,7 +386,8 @@ async function loadAlerts(markRead) {
   try {
     const data = await api('/company/alerts');
     alertsCache = data.alerts;
-    setAlertBadge(data.alerts.filter(a => a.status === 'open').length);
+    diversionsCache = data.diversions || [];
+    setAlertBadge(openAlertCount());
     renderAlerts();
     if (markRead && data.unread > 0) api('/company/alerts/read', { method: 'POST' }).catch(() => {});
   } catch (e) {
@@ -361,27 +396,61 @@ async function loadAlerts(markRead) {
   }
 }
 
+function mapLink(lat, lng, text) {
+  if (lat == null || lng == null) return '';
+  return `<a href="https://www.google.com/maps?q=${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}" target="_blank" rel="noopener">${text}</a>`;
+}
+
 function renderAlerts() {
   const wrap = document.getElementById('alertsWrap');
-  if (alertsCache.length === 0) {
-    wrap.innerHTML = '<p class="empty-note">No alerts. Codes that look copied will appear here.</p>';
+  if (alertsCache.length === 0 && diversionsCache.length === 0) {
+    wrap.innerHTML = '<p class="empty-note">No alerts. Codes that look copied, or products shipped outside their sales area, will appear here.</p>';
     return;
   }
-  wrap.innerHTML = alertsCache.map(a => {
-    const last = a.lastVerifiedAt
-      ? `${escapeHTML(formatWhen(a.lastVerifiedAt))}${a.lastLat != null ? ` · <a href="https://www.google.com/maps?q=${Number(a.lastLat).toFixed(5)},${Number(a.lastLng).toFixed(5)}" target="_blank" rel="noopener">open map</a>` : ''}`
-      : 'Not scanned yet';
-    return `<div class="alert-card ${a.status === 'confirmed' ? 'confirmed' : ''}">
-      <h4>${escapeHTML(a.productName)} · serial ${escapeHTML(a.serialNumber)} ${statusPill(a.status)}</h4>
-      <div class="alert-code">${escapeHTML(a.code)}</div>
-      ${a.status === 'open' && a.reasons.length ? `<ul>${a.reasons.map(r => `<li>${escapeHTML(r)}</li>`).join('')}</ul>` : ''}
-      <div class="unit-meta">Batch ${escapeHTML(a.batchNumber)} · checked ${a.verifyCount} time${a.verifyCount === 1 ? '' : 's'}</div>
-      <div class="unit-meta">Last scanned: ${last}</div>
-      ${a.flaggedAt ? `<div class="unit-meta">Flagged: ${escapeHTML(formatWhen(a.flaggedAt))}</div>` : ''}
-      ${a.note ? `<div class="unit-meta">Note: ${escapeHTML(a.note)}</div>` : ''}
-      ${reviewButtons(a.code, a.status).replace('unit-actions', 'alert-actions')}
-    </div>`;
-  }).join('');
+  let html = '';
+
+  if (alertsCache.length) {
+    html += '<h4 class="an-sub">Possible duplicates</h4>';
+    html += alertsCache.map(a => {
+      const last = a.lastVerifiedAt
+        ? `${escapeHTML(formatWhen(a.lastVerifiedAt))}${a.lastLat != null ? ' · ' + mapLink(a.lastLat, a.lastLng, 'open map') : ''}`
+        : 'Not scanned yet';
+      const evidence = `<button class="btn secondary sm" data-act="evidence" data-code="${escapeAttr(a.code)}">Download evidence</button>`;
+      const actions = reviewButtons(a.code, a.status).replace('unit-actions', 'alert-actions').replace(/<\/div>\s*$/, evidence + '</div>');
+      return `<div class="alert-card ${a.status === 'confirmed' ? 'confirmed' : ''}">
+        <h4>${escapeHTML(a.productName)} · serial ${escapeHTML(a.serialNumber)} ${statusPill(a.status)}</h4>
+        <div class="alert-code">${escapeHTML(a.code)}</div>
+        ${a.status === 'open' && a.reasons.length ? `<ul>${a.reasons.map(r => `<li>${escapeHTML(r)}</li>`).join('')}</ul>` : ''}
+        <div class="unit-meta">Batch ${escapeHTML(a.batchNumber)} · checked ${a.verifyCount} time${a.verifyCount === 1 ? '' : 's'}</div>
+        <div class="unit-meta">Last scanned: ${last}</div>
+        ${a.flaggedAt ? `<div class="unit-meta">Flagged: ${escapeHTML(formatWhen(a.flaggedAt))}</div>` : ''}
+        ${a.note ? `<div class="unit-meta">Note: ${escapeHTML(a.note)}</div>` : ''}
+        ${actions}
+      </div>`;
+    }).join('');
+  }
+
+  if (diversionsCache.length) {
+    html += '<h4 class="an-sub">Shipped outside the sales area</h4>';
+    html += diversionsCache.map(d => `<div class="alert-card">
+      <h4>${escapeHTML(d.productName)} · serial ${escapeHTML(d.serialNumber)} <span class="status-pill open">Out of area</span></h4>
+      <div class="alert-code">${escapeHTML(d.code)}</div>
+      <ul><li>${escapeHTML(d.partner)} (${escapeHTML(d.role)}) recorded “${escapeHTML(ACTION_TEXT[d.action] || d.action)}”${d.kmOutside != null ? `, about ${d.kmOutside} km outside ${escapeHTML(d.areaLabel || 'the sales area')}` : ''}</li></ul>
+      <div class="unit-meta">Batch ${escapeHTML(d.batchNumber)} · ${escapeHTML(formatWhen(d.at))} ${mapLink(d.lat, d.lng, '· open map')}</div>
+      <div class="alert-actions">
+        <button class="btn secondary sm" data-act="dismiss" data-id="${escapeAttr(d.id)}">Dismiss</button>
+        <button class="btn secondary sm" data-act="evidence" data-code="${escapeAttr(d.code)}">Download evidence</button>
+      </div>
+    </div>`).join('');
+  }
+  wrap.innerHTML = html;
+}
+
+async function dismissDiversion(id) {
+  try {
+    await api(`/custody/${encodeURIComponent(id)}/dismiss`, { method: 'POST' });
+    await loadAlerts(false);
+  } catch (e) { alert(e.message); }
 }
 
 async function reviewUnit(code, outcome) {
@@ -402,12 +471,17 @@ async function reviewUnit(code, outcome) {
   }
 }
 
-// One listener handles every review button (alerts list and batch panels).
+// One listener handles every action button (alerts, batch panels, downloads).
 document.addEventListener('click', e => {
+  const csv = e.target.closest('[data-csv]');
+  if (csv) { downloadFile(csv.dataset.csv, csv.dataset.file || 'export.csv'); return; }
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
   const act = btn.dataset.act;
   if (act === 'cleared' || act === 'confirmed') reviewUnit(btn.dataset.code, act);
+  else if (act === 'trail') toggleTrail(btn);
+  else if (act === 'evidence') downloadFile(`/units/${encodeURIComponent(btn.dataset.code)}/evidence.csv`, `evidence-${btn.dataset.code}.csv`);
+  else if (act === 'dismiss') dismissDiversion(btn.dataset.id);
 });
 
 /* ---------- settings ---------- */
@@ -643,6 +717,7 @@ async function verifyCode(rawCode) {
     <dt>Serial</dt><dd>${escapeHTML(product.serialNumber)}</dd>
     <dt>Checked</dt><dd>${verifyCount} time${verifyCount === 1 ? '' : 's'}</dd>
     <dt>Previous check</dt><dd>${previousScanAt ? escapeHTML(formatWhen(previousScanAt)) : 'First time checked'}</dd>
+    ${journeyHtml(data.journey)}
   `;
 
   if (status === 'unusual') {
@@ -656,8 +731,10 @@ async function verifyCode(rawCode) {
 /* ---------- camera scanning ---------- */
 let camStream = null;
 let camRAF = null;
+let cameraMode = 'verify'; // 'verify' (shoppers) or 'trade' (distributors and retailers)
 
-async function openCamera() {
+async function openCamera(mode) {
+  cameraMode = mode === 'trade' ? 'trade' : 'verify';
   const modal = document.getElementById('camModal');
   modal.classList.add('open');
   const video = document.getElementById('camVideo');
@@ -711,6 +788,7 @@ function scanLoop() {
       const result = jsQR(imageData.data, imageData.width, imageData.height);
       if (result && result.data) {
         closeCamera();
+        if (cameraMode === 'trade') { tradeRecord(extractCode(result.data)); return; }
         showView('verify');
         verifyCode(extractCode(result.data));
         return;
@@ -719,6 +797,143 @@ function scanLoop() {
     camRAF = requestAnimationFrame(tick);
   }
   camRAF = requestAnimationFrame(tick);
+}
+
+/* ---------- supply chain, sales area, downloads ---------- */
+// How each step reads: "Received by Lagos Distributors".
+const ACTION_TEXT = { received: 'Received by', shipped: 'Shipped on by', stocked: 'Put on shelf by', sold: 'Sold by' };
+
+function journeyHtml(journey) {
+  if (!journey || !journey.length) return '';
+  const lines = journey.map(j =>
+    `${escapeHTML(ACTION_TEXT[j.action] || j.action)} ${escapeHTML(j.partner)} (${escapeHTML(j.role)}), ${escapeHTML(new Date(j.at).toLocaleDateString())}`);
+  return `<dt>Journey</dt><dd>${lines.join('<br>')}</dd>`;
+}
+
+function custodyLine(c) {
+  if (!c) return '';
+  return `<div class="unit-meta">Journey: ${escapeHTML(ACTION_TEXT[c.action] || c.action)} ${escapeHTML(c.partner)} · ${escapeHTML(formatWhen(c.at))}${c.outOfArea ? ' ⚠ outside sales area' : ''}</div>`;
+}
+
+async function toggleTrail(btn) {
+  const box = btn.closest('.unit-card').querySelector('.trail-box');
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.textContent = 'Loading…';
+  try {
+    const data = await api(`/units/${encodeURIComponent(btn.dataset.code)}/custody`);
+    if (!data.events.length) { box.textContent = 'No distributor or retailer has recorded this product yet.'; return; }
+    box.innerHTML = data.events.map(ev =>
+      `<div>${escapeHTML(ACTION_TEXT[ev.action] || ev.action)} ${escapeHTML(ev.partner)} (${escapeHTML(ev.role)}) · ${escapeHTML(formatWhen(ev.at))} ${mapLink(ev.lat, ev.lng, '· map')}${ev.outOfArea ? ' ⚠ outside sales area' : ''}</div>`).join('');
+  } catch (e) { box.textContent = e.message; }
+}
+
+function areaText(a) {
+  if (!a) return 'Not set: shipments from any location are accepted.';
+  return `Currently: ${a.label ? a.label + ' · ' : ''}${a.radiusKm} km around ${Number(a.lat).toFixed(4)}, ${Number(a.lng).toFixed(4)}`;
+}
+
+async function loadSalesArea(batchId) {
+  try { salesAreaCache[batchId] = (await api(`/batches/${batchId}/sales-area`)).area; }
+  catch (e) { salesAreaCache[batchId] = null; }
+}
+
+function batchToolsHtml(batch) {
+  const a = salesAreaCache[batch.id];
+  const id = batch.id;
+  return `<div class="batch-tools">
+    <div class="alert-actions">
+      <button class="btn secondary sm" data-csv="/export/units.csv?batchId=${encodeURIComponent(id)}" data-file="codes-${escapeAttr(batch.batchNumber)}.csv">Download codes (CSV)</button>
+    </div>
+    <label class="field-label" style="margin-top:12px;">Sales area (optional)</label>
+    <p class="small-note">Distributors and retailers who record this batch outside the area raise an out-of-area alert.</p>
+    <p class="small-note" id="areaNow-${id}">${escapeHTML(areaText(a))}</p>
+    <div class="row2">
+      <div><input type="text" id="areaLabel-${id}" placeholder="Name, e.g. Lagos and Ogun" value="${a ? escapeAttr(a.label) : ''}"></div>
+      <div><input type="number" id="areaRadius-${id}" placeholder="Radius (km)" min="1" max="5000" value="${a ? a.radiusKm : 50}"></div>
+    </div>
+    <div class="row2">
+      <div><input type="text" id="areaLat-${id}" placeholder="Centre latitude" value="${a ? a.lat : ''}"></div>
+      <div><input type="text" id="areaLng-${id}" placeholder="Centre longitude" value="${a ? a.lng : ''}"></div>
+    </div>
+    <div class="alert-actions">
+      <button class="btn secondary sm" onclick="useMyLocationForArea('${id}')">Use my location</button>
+      <button class="btn sm" onclick="saveSalesArea('${id}')">Save area</button>
+      <button class="btn secondary sm" onclick="clearSalesArea('${id}')">Clear</button>
+    </div>
+    <p class="status-line" id="areaStatus-${id}"></p>
+  </div>`;
+}
+
+function areaStatus(id, text, ok) {
+  const el = document.getElementById('areaStatus-' + id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'status-line' + (ok === true ? ' ok-text' : ok === false ? ' error-text' : '');
+}
+
+async function useMyLocationForArea(id) {
+  areaStatus(id, 'Getting your location…');
+  try {
+    const loc = await getBestLocation();
+    document.getElementById('areaLat-' + id).value = loc.lat.toFixed(5);
+    document.getElementById('areaLng-' + id).value = loc.lng.toFixed(5);
+    areaStatus(id, 'Location filled in. Set a radius and press Save area.', true);
+  } catch (e) {
+    areaStatus(id, 'Could not get your location. Type the latitude and longitude instead.', false);
+  }
+}
+
+async function saveSalesArea(id) {
+  try {
+    const r = await api(`/batches/${id}/sales-area`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        label: document.getElementById('areaLabel-' + id).value,
+        lat: document.getElementById('areaLat-' + id).value,
+        lng: document.getElementById('areaLng-' + id).value,
+        radiusKm: document.getElementById('areaRadius-' + id).value
+      })
+    });
+    salesAreaCache[id] = r.area;
+    document.getElementById('areaNow-' + id).textContent = areaText(r.area);
+    areaStatus(id, 'Saved.', true);
+  } catch (e) { areaStatus(id, e.message, false); }
+}
+
+async function clearSalesArea(id) {
+  try {
+    await api(`/batches/${id}/sales-area`, { method: 'PUT', body: JSON.stringify({ clear: true }) });
+    salesAreaCache[id] = null;
+    document.getElementById('areaNow-' + id).textContent = areaText(null);
+    document.getElementById('areaLabel-' + id).value = '';
+    document.getElementById('areaLat-' + id).value = '';
+    document.getElementById('areaLng-' + id).value = '';
+    areaStatus(id, 'Sales area removed.', true);
+  } catch (e) { areaStatus(id, e.message, false); }
+}
+
+// Downloads a file the server only gives to a logged-in company.
+async function downloadFile(path, filename) {
+  try {
+    const res = await fetch(API_BASE + path, { headers: { Authorization: 'Bearer ' + (session && session.token) } });
+    if (!res.ok) {
+      let msg = 'The download failed.';
+      try { msg = (await res.json()).error || msg; } catch (e) {}
+      alert(msg);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = String(filename).replace(/[^A-Za-z0-9._-]/g, '_');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    alert('The download failed. Check your connection and try again.');
+  }
 }
 
 /* ---------- init ---------- */

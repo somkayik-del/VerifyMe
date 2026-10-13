@@ -84,8 +84,20 @@ router.get('/batches/:batchId/units', requireAuth, (req, res) => {
     'SELECT * FROM units WHERE batch_id = ? ORDER BY serial_number ASC'
   ).all(batch.id);
 
+  // Each unit's most recent step in the supply chain (if any).
+  const last = new Map(db.prepare(
+    `SELECT e.unit_code, e.action, e.at, e.out_of_area, p.name AS partner_name, p.role
+     FROM custody_events e JOIN partners p ON p.id = e.partner_id
+     WHERE e.unit_code IN (SELECT code FROM units WHERE batch_id = ?)
+       AND e.id = (SELECT MAX(x.id) FROM custody_events x WHERE x.unit_code = e.unit_code)`
+  ).all(batch.id).map(r => [r.unit_code, r]));
+
   res.json({
     units: units.map(u => ({
+      custody: last.has(u.code)
+        ? { action: last.get(u.code).action, at: last.get(u.code).at, partner: last.get(u.code).partner_name,
+            role: last.get(u.code).role, outOfArea: !!last.get(u.code).out_of_area }
+        : null,
       code: u.code,
       serialNumber: u.serial_number,
       verifyCount: u.verify_count,

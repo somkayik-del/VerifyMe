@@ -12,6 +12,10 @@ const unitRoutes = require('./routes/units');
 const verifyRoutes = require('./routes/verify');
 const companyRoutes = require('./routes/company');
 const adminRoutes = require('./routes/admin');
+const tradeRoutes = require('./routes/trade');
+const partnerRoutes = require('./routes/partners');
+const analyticsRoutes = require('./routes/analytics');
+const exportRoutes = require('./routes/export');
 
 const app = express();
 
@@ -27,12 +31,18 @@ app.use('/api', security.apiLimiter);
 app.use('/api/verify', security.verifyLimiter);
 app.post('/api/auth/login', security.loginGuard);
 app.post('/api/auth/register', security.registerLimiter, security.registerRules);
+app.post('/api/trade/login', security.tradeLoginGuard);
+app.use('/api/trade', security.tradeLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/batches', batchRoutes);
 app.use('/api', unitRoutes); // /api/batches/:batchId/units, /api/units/:code/qr.png, /api/units/:code/review
 app.use('/api/verify', verifyRoutes);
 app.use('/api', companyRoutes); // alerts and settings
+app.use('/api', partnerRoutes); // partners, custody trail, sales areas
+app.use('/api', analyticsRoutes);
+app.use('/api', exportRoutes);
+app.use('/api/trade', tradeRoutes); // distributor / retailer portal
 app.use('/api/admin', adminRoutes);
 
 // Serve the frontend so the whole app runs from one origin (no CORS headaches).

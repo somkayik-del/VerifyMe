@@ -24,6 +24,7 @@
     <nav class="tabs">
       <button id="tabVerifyBtn" class="active" onclick="showView('verify')">Verify a product</button>
       <button id="tabCompanyBtn" onclick="showView('company')">Company portal</button>
+      <button id="tabTradeBtn" onclick="showView('trade')">Trade portal</button>
     </nav>
   </div>
 </header>
@@ -108,6 +109,8 @@
       <nav class="dash-tabs">
         <button id="dashTabBatches" class="active" onclick="showDashTab('batches')">Batches</button>
         <button id="dashTabAlerts" onclick="showDashTab('alerts')">Alerts<span class="count-badge" id="alertCount" style="display:none;">0</span></button>
+        <button id="dashTabPartners" onclick="showDashTab('partners')">Partners</button>
+        <button id="dashTabAnalytics" onclick="showDashTab('analytics')">Analytics</button>
         <button id="dashTabSettings" onclick="showDashTab('settings')">Settings</button>
       </nav>
 
@@ -153,6 +156,87 @@
         </div>
       </div>
 
+      <!-- Partners -->
+      <div id="dashPanelPartners" style="display:none;">
+        <div class="card">
+          <h3>Add a distributor or retailer</h3>
+          <p class="small-note">
+            Partners log in to the Trade portal with an access code and scan each product as it is received,
+            shipped, put on the shelf or sold. That gives every product a recorded journey.
+          </p>
+          <div class="row2">
+            <div class="field">
+              <label class="field-label">Name</label>
+              <input type="text" id="partnerName" placeholder="Lagos Distributors Ltd">
+            </div>
+            <div class="field">
+              <label class="field-label">Type</label>
+              <select id="partnerRole">
+                <option value="distributor">Distributor</option>
+                <option value="retailer">Retailer</option>
+              </select>
+            </div>
+          </div>
+          <p class="error-text" id="partnerError" style="display:none;"></p>
+          <button class="btn" onclick="createPartner()">Create partner</button>
+          <div id="partnerCodeBox" class="code-reveal" style="display:none;"></div>
+        </div>
+        <div class="card">
+          <h3>Your partners</h3>
+          <div id="partnersWrap"><p class="empty-note">Loading…</p></div>
+        </div>
+      </div>
+
+      <!-- Analytics -->
+      <div id="dashPanelAnalytics" style="display:none;">
+        <div class="card">
+          <div class="an-head">
+            <h3>Overview</h3>
+            <select id="anDays" onchange="loadAnalytics()">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </div>
+          <div class="stat-grid" id="anStats"></div>
+          <h4 class="an-sub">Shopper checks per day</h4>
+          <div id="anChart"></div>
+        </div>
+        <div class="card">
+          <h3>Where products are checked</h3>
+          <p class="small-note" id="anMapNote"></p>
+          <div id="anMap" class="map-box" style="display:none;"></div>
+          <div id="anHotspots"></div>
+        </div>
+        <div class="card">
+          <h3>Impact estimate</h3>
+          <p class="small-note">
+            An estimate from <strong>your own assumptions</strong>, not a measured result. Change the numbers to match your business.
+          </p>
+          <div class="row2">
+            <div class="field"><label class="field-label">Currency</label><input type="text" id="roiCurrency" placeholder="NGN" maxlength="6"></div>
+            <div class="field"><label class="field-label">Average selling price of one product</label><input type="number" id="roiPrice" min="0" placeholder="e.g. 2500"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label class="field-label">Fake products sold per copied code</label><input type="number" id="roiFake" min="0" placeholder="5"></div>
+            <div class="field"><label class="field-label">Share of fake buyers who would have bought the real one (%)</label><input type="number" id="roiSub" min="0" max="100" placeholder="25"></div>
+          </div>
+          <div class="field"><label class="field-label">What this software costs you per month</label><input type="number" id="roiCost" min="0" placeholder="e.g. 50000"></div>
+          <div class="alert-actions"><button class="btn" onclick="saveRoi()">Save assumptions</button></div>
+          <p class="status-line" id="roiStatus"></p>
+          <div id="roiResult"></div>
+        </div>
+        <div class="card">
+          <h3>Export your data</h3>
+          <p class="small-note">Spreadsheets (CSV) that open in Excel or Google Sheets. Each flagged code also has its own evidence sheet under Alerts.</p>
+          <div class="alert-actions">
+            <button class="btn secondary" id="exScans" data-csv="/export/scans.csv?days=30" data-file="shopper-checks.csv">Shopper checks</button>
+            <button class="btn secondary" id="exCustody" data-csv="/export/custody.csv?days=30" data-file="partner-scans.csv">Partner scans</button>
+            <button class="btn secondary" data-csv="/export/units.csv" data-file="all-codes.csv">All codes</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Settings -->
       <div id="dashPanelSettings" style="display:none;">
         <div class="card">
@@ -178,6 +262,49 @@
           </div>
           <p class="status-line" id="setStatus"></p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRADE VIEW (distributors and retailers) -->
+  <section id="view-trade" class="view">
+    <div id="tradeAuth">
+      <h2 class="section-title">Distributor and retailer portal</h2>
+      <p class="section-lede">Log in with the access code your manufacturer gave you, then scan each product as it arrives, ships on or sells.</p>
+      <div class="auth-box">
+        <div class="field">
+          <label class="field-label">Access code</label>
+          <input type="text" id="tradeCode" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters">
+        </div>
+        <p class="error-text" id="tradeLoginError" style="display:none;"></p>
+        <button class="btn full" onclick="tradeLogin()">Log in</button>
+      </div>
+    </div>
+
+    <div id="tradeBlock" style="display:none;">
+      <div class="company-header">
+        <div>
+          <div class="name" id="tradeName">—</div>
+          <div class="meta" id="tradeMeta">—</div>
+        </div>
+        <button class="btn ghost" onclick="tradeLogout()">Log out</button>
+      </div>
+
+      <div class="card">
+        <h3>Record a product</h3>
+        <label class="field-label">What are you recording?</label>
+        <div class="trade-actions" id="tradeActions"></div>
+        <div class="verify-controls">
+          <input type="text" id="tradeCodeInput" placeholder="Type or paste the product code" autocomplete="off">
+          <button class="btn" onclick="tradeRecord()">Record</button>
+        </div>
+        <button class="btn secondary full" onclick="openCamera('trade')">📷 Scan QR code instead</button>
+        <div class="trade-result" id="tradeResult" style="display:none;"></div>
+      </div>
+
+      <div class="card">
+        <h3>Your recent activity</h3>
+        <div id="tradeRecent"><p class="empty-note">Loading…</p></div>
       </div>
     </div>
   </section>
@@ -218,5 +345,7 @@
 })();
 </script>
 <script src="app.js"></script>
+<script src="trade-ui.js"></script>
+<script src="analytics-ui.js"></script>
 </body>
 </html>
