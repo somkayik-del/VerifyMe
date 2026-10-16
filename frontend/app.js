@@ -141,7 +141,7 @@ function showDashTab(name) {
   if (name === 'alerts') loadAlerts(true);
   if (name === 'partners') loadPartners();
   if (name === 'analytics') loadAnalytics();
-  if (name === 'settings') loadSettings();
+  if (name === 'settings') { loadSettings(); loadApiKeys(); }
 }
 
 async function renderCompanyView() {

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('./db');
+const { KEY_PREFIX, hashKey } = require('./apikeys');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 if (!process.env.JWT_SECRET) {
@@ -75,4 +76,24 @@ function requirePartner(req, res, next) {
   next();
 }
 
-module.exports = { signToken, signPartnerToken, requireAuth, requirePartner };
+// For a company's own systems (ERP, online shop). The key goes in the X-API-Key header.
+// Keys in web addresses are not accepted: addresses end up in logs.
+function requireApiKey(req, res, next) {
+  const raw = String(req.headers['x-api-key'] || bearer(req) || '');
+  if (!raw.startsWith(KEY_PREFIX)) {
+    return res.status(401).json({ error: 'Send your API key in the X-API-Key header.' });
+  }
+  const row = db.prepare('SELECT * FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL').get(hashKey(raw));
+  if (!row || !db.prepare('SELECT 1 FROM companies WHERE id = ?').get(row.company_id)) {
+    return res.status(401).json({ error: 'That API key is not valid, or it has been revoked.' });
+  }
+  const now = Date.now();
+  if (!row.last_used_at || now - row.last_used_at > 60000) {
+    db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(now, row.id);
+  }
+  req.companyId = row.company_id;
+  req.apiKeyId = row.id;
+  next();
+}
+
+module.exports = { signToken, signPartnerToken, requireAuth, requirePartner, requireApiKey };

@@ -108,6 +108,18 @@ db.exec(`
     reviewed_at INTEGER
   );
 
+  -- Keys that let a company's own systems (ERP, online shop) use the API.
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id           TEXT PRIMARY KEY,
+    company_id   TEXT NOT NULL REFERENCES companies(id),
+    label        TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE,
+    key_prefix   TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    last_used_at INTEGER,
+    revoked_at   INTEGER
+  );
+
   CREATE INDEX IF NOT EXISTS idx_scans_unit_code_at ON scans(unit_code, at);
   CREATE INDEX IF NOT EXISTS idx_batches_company ON batches(company_id);
   CREATE INDEX IF NOT EXISTS idx_units_batch ON units(batch_id);
@@ -157,6 +169,7 @@ addColumnIfMissing('companies', 'roi_substitution_pct', 'REAL');
 addColumnIfMissing('companies', 'roi_monthly_cost', 'REAL');
 
 db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_api_keys_company ON api_keys(company_id);
   CREATE INDEX IF NOT EXISTS idx_custody_unit ON custody_events(unit_code, at);
   CREATE INDEX IF NOT EXISTS idx_custody_partner ON custody_events(partner_id, at);
   CREATE INDEX IF NOT EXISTS idx_custody_company_area ON custody_events(company_id, out_of_area, reviewed_at);
@@ -165,5 +178,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notifications_company ON notifications(company_id, read_at, created_at);
   CREATE INDEX IF NOT EXISTS idx_units_company_flag ON units(company_id, flag_status);
 `);
+
+// Product registration, warranty and rewards were removed. If this database was created by a
+// version that had them, remove what they left behind. Customer details are never thrown away
+// automatically: the old table is only dropped when it is empty.
+try {
+  const oldTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'registrations'").get();
+  if (oldTable) {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM registrations').get().n;
+    if (n === 0 || process.env.DROP_OLD_REGISTRATIONS === 'yes') {
+      db.exec('DROP TABLE registrations');
+      if (n > 0) console.log(`Removed ${n} old product registration(s), as you asked.`);
+    } else {
+      console.log(`Note: ${n} old product registration(s) are still stored. The feature has been removed, so nothing uses them. To delete them, set the variable DROP_OLD_REGISTRATIONS to yes, restart once, then remove the variable.`);
+    }
+  }
+  const companyCols = db.prepare('PRAGMA table_info(companies)').all().map(c => c.name);
+  for (const col of ['warranty_months', 'reward_text']) {
+    if (companyCols.includes(col)) db.exec(`ALTER TABLE companies DROP COLUMN ${col}`);
+  }
+} catch (e) {
+  console.warn('Could not tidy up old registration data:', e.message);
+}
 
 module.exports = db;

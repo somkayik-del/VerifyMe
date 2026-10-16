@@ -127,6 +127,13 @@ function tradeLoginGuard(req, res, next) {
   next();
 }
 
+/* ---------- The API ---------- */
+const apiKeyLimiter = createLimiter({
+  windowMs: 60000, max: 120,
+  keyFn: req => clientIp(req) + '|' + String(req.headers['x-api-key'] || req.headers.authorization || '').slice(0, 24),
+  message: 'API rate limit reached (120 requests a minute). Slow down and retry shortly.'
+});
+
 /* ---------- Code-guessing protection (for /api/verify) ---------- */
 // 5 unknown codes from one device in 10 minutes, or 30 from one connection,
 // pauses checking for 30 minutes. (The connection limit is higher because many
@@ -145,6 +152,6 @@ function recordInvalidCode(deviceId, ip) {
 module.exports = {
   clientIp, createLimiter, createBlocker,
   apiLimiter, verifyLimiter, registerLimiter,
-  loginGuard, registerRules, tradeLimiter, tradeLoginGuard,
+  loginGuard, registerRules, tradeLimiter, tradeLoginGuard, apiKeyLimiter,
   checkGuessBlock, recordInvalidCode
 };

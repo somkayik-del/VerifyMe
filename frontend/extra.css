@@ -84,3 +84,30 @@ select {
 .batch-tools { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(128, 128, 128, .25); }
 .trail-box { margin-top: 6px; font-size: .88rem; }
 .trail-box div { padding: 3px 0; }
+
+/* ---- Import results and API keys ---- */
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-size: .92rem; line-height: 1.4; }
+.check-row input { width: auto; margin-top: 3px; flex: none; }
+
+.claim-banner { margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-weight: 600; border: 2px solid; }
+.claim-banner.good { border-color: #1f6b3a; background: rgba(31, 107, 58, .1); }
+.claim-banner.warn { border-color: #b45309; background: rgba(180, 83, 9, .1); }
+.claim-banner.bad { border-color: #b3261e; background: rgba(179, 38, 30, .1); }
+.claim-details { margin-top: 10px; font-size: .92rem; line-height: 1.55; }
+.claim-details div { padding: 2px 0; }
+
+.api-docs { margin-top: 14px; }
+.api-docs summary { cursor: pointer; font-weight: 600; }
+.doc-pre {
+  font-family: "JetBrains Mono", monospace; font-size: .78rem; line-height: 1.5;
+  padding: 10px 12px; border-radius: 6px; overflow-x: auto; white-space: pre;
+  background: rgba(128, 128, 128, .14);
+}
+.key-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .25); }
+.key-row .mono { font-family: "JetBrains Mono", monospace; font-size: .85rem; }
+
+/* ---- Spreadsheet import ---- */
+.imp-problems { margin: 10px 0 6px 18px; padding: 0; font-size: .92rem; line-height: 1.5; }
+.imp-table { border-collapse: collapse; margin: 8px 0; font-size: .85rem; }
+.imp-table th, .imp-table td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid rgba(128, 128, 128, .3); }
+.imp-warn { color: #8a4b08; font-weight: 600; }

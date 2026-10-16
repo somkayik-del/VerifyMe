@@ -136,6 +136,17 @@
           <button class="btn" onclick="createBatch()">Register batch</button>
         </div>
 
+        <div class="card" id="importCard">
+          <h3>Import from a spreadsheet (CSV)</h3>
+          <p class="small-note">
+            Already have a list of units? Upload it and a unique code is created for every row. You get your own file back with the codes added.
+            In Excel, use <em>Save as → CSV</em>. Each row is one unit: a serial number, and usually a batch, a product name and a manufacturing date.
+          </p>
+          <input type="file" id="impFile" accept=".csv,.txt,text/csv" onchange="impFileChosen(this)">
+          <div id="impSetup" style="margin-top:12px;"></div>
+          <div id="impOut" style="margin-top:12px;"></div>
+        </div>
+
         <div class="card">
           <h3>Your batches</h3>
           <div id="batchListWrap">
@@ -262,6 +273,25 @@
           </div>
           <p class="status-line" id="setStatus"></p>
         </div>
+
+        <div class="card">
+          <h3>Connect your systems (API)</h3>
+          <p class="small-note">
+            An API key lets your own software (an ERP or an online shop) create batches and codes and check codes automatically.
+            Treat a key like a password.
+          </p>
+          <div class="verify-controls">
+            <input type="text" id="keyLabel" placeholder="Name this key, e.g. Online shop" maxlength="60">
+            <button class="btn" onclick="createApiKey()">Create key</button>
+          </div>
+          <p class="error-text" id="keyError" style="display:none;"></p>
+          <div id="keyReveal" class="code-reveal" style="display:none;"></div>
+          <div id="keysWrap"></div>
+          <details class="api-docs">
+            <summary>How to use the API</summary>
+            <div id="apiDocs"></div>
+          </details>
+        </div>
       </div>
     </div>
   </section>
@@ -347,5 +377,7 @@
 <script src="app.js"></script>
 <script src="trade-ui.js"></script>
 <script src="analytics-ui.js"></script>
+<script src="api-keys-ui.js"></script>
+<script src="import-ui.js"></script>
 </body>
 </html>

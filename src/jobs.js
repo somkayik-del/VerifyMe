@@ -11,6 +11,7 @@ function purge() {
     if (r.changes) console.log(`Cleanup: deleted ${r.changes} scan(s) older than ${days} days`);
   }
   db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?').run(Date.now() - 90 * DAY);
+
 }
 
 function start() {

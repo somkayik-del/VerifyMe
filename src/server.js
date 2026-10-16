@@ -16,6 +16,9 @@ const tradeRoutes = require('./routes/trade');
 const partnerRoutes = require('./routes/partners');
 const analyticsRoutes = require('./routes/analytics');
 const exportRoutes = require('./routes/export');
+const keyRoutes = require('./routes/keys');
+const v1Routes = require('./routes/v1');
+const bulkRoutes = require('./routes/bulk');
 
 const app = express();
 
@@ -24,6 +27,8 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors());
+// The spreadsheet import sends a few thousand rows at a time, so it may be larger than other requests.
+app.use('/api/company/import', express.json({ limit: '2mb' }));
 app.use(express.json());
 
 // Protection against abuse (see security.js)
@@ -42,6 +47,9 @@ app.use('/api', companyRoutes); // alerts and settings
 app.use('/api', partnerRoutes); // partners, custody trail, sales areas
 app.use('/api', analyticsRoutes);
 app.use('/api', exportRoutes);
+app.use('/api', keyRoutes); // API keys
+app.use('/api', bulkRoutes); // spreadsheet (CSV) import
+app.use('/api/v1', v1Routes); // for a company's own systems
 app.use('/api/trade', tradeRoutes); // distributor / retailer portal
 app.use('/api/admin', adminRoutes);
 
