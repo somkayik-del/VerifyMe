@@ -1,17 +1,31 @@
 const express = require('express');
-const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const db = require('../db');
+const { requireAdminToken, tokenMatches } = require('../security');
 
 const router = express.Router();
 
-function tokenMatches(given, expected) {
-  const a = Buffer.from(String(given));
-  const b = Buffer.from(String(expected));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
+// The administrator page uses this to confirm the token is right before showing anything.
+router.get('/check', requireAdminToken, (req, res) => res.json({ ok: true }));
+
+// Every company account, with a few totals. Never includes passwords.
+router.get('/companies', requireAdminToken, (req, res) => {
+  const rows = db.prepare(
+    `SELECT c.id, c.name, c.created_at,
+            (SELECT COUNT(*) FROM batches b WHERE b.company_id = c.id) AS batches,
+            (SELECT COUNT(*) FROM units u WHERE u.company_id = c.id) AS units,
+            (SELECT COUNT(*) FROM partners p WHERE p.company_id = c.id) AS partners
+     FROM companies c ORDER BY c.created_at DESC`
+  ).all();
+  res.json({
+    companies: rows.map(r => ({
+      id: r.id, name: r.name, createdAt: Number(r.created_at),
+      batches: Number(r.batches), units: Number(r.units), partners: Number(r.partners)
+    }))
+  });
+});
 
 // Downloads a consistent copy of the whole database. Only works if you set the
 // ADMIN_TOKEN variable on the server, and the request carries the same token:

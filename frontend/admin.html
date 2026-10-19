@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Administrator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="extra.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="mark">🛡</span>
+      <div>
+        <h1>Product Authenticator</h1>
+        <div class="sub">Administrator</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="adminLogin">
+    <h2 class="section-title">Administrator access</h2>
+    <p class="section-lede">Only the administrator can create company accounts. Enter the administrator token that is set on the server.</p>
+    <div class="auth-box">
+      <div class="field">
+        <label class="field-label">Administrator token</label>
+        <input type="password" id="adminToken" autocomplete="off">
+      </div>
+      <p class="error-text" id="adminError" style="display:none;"></p>
+      <button class="btn full" onclick="adminSignIn()">Sign in</button>
+    </div>
+  </section>
+
+  <section id="adminPanel" style="display:none;">
+    <div class="company-header">
+      <div>
+        <div class="name">Administrator</div>
+        <div class="meta">Create and see company accounts</div>
+      </div>
+      <button class="btn ghost" onclick="adminSignOut()">Sign out</button>
+    </div>
+
+    <div class="card">
+      <h3>Create a company account</h3>
+      <p class="small-note">Give the company its name and password. They log in at their own address, shown after you create the account.</p>
+      <div class="field">
+        <label class="field-label">Company name</label>
+        <input type="text" id="newName" placeholder="Peak Milk Nigeria" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="field-label">Password (at least 8 characters)</label>
+        <div class="verify-controls" style="margin:0;">
+          <input type="text" id="newPassword" autocomplete="off">
+          <button class="btn secondary" type="button" onclick="generatePassword()">Generate</button>
+        </div>
+      </div>
+      <p class="error-text" id="createError" style="display:none;"></p>
+      <button class="btn" onclick="createCompany()">Create account</button>
+      <div id="createdBox" class="code-reveal" style="display:none;"></div>
+    </div>
+
+    <div class="card">
+      <h3>Company accounts</h3>
+      <div id="adminCompanies"><p class="empty-note">Loading…</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="note">
+  Powered by Somze.
+</footer>
+
+<script src="admin.js"></script>
+</body>
+</html>

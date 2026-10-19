@@ -15,6 +15,18 @@ function setSession(data) {
     if (session) localStorage.setItem('pa_session', JSON.stringify(session));
     else localStorage.removeItem('pa_session');
   } catch (e) {}
+  updateTabs();
+}
+
+// The company portal is not advertised to shoppers. Its tab only shows on the company's own
+// address (/company) or while a company is logged in. The real protection is the login itself.
+const ON_COMPANY_PATH = location.pathname.replace(/\/+$/, '').toLowerCase() === '/company';
+function companyTabVisible() { return ON_COMPANY_PATH || !!session; }
+function updateTabs() {
+  const btn = document.getElementById('tabCompanyBtn');
+  if (!btn) return;
+  btn.style.display = companyTabVisible() ? '' : 'none';
+  if (!companyTabVisible() && document.getElementById('view-company').classList.contains('active')) showView('verify');
 }
 
 // The distributor / retailer portal keeps its own login, separate from the company's.
@@ -64,6 +76,7 @@ function formatWhen(ms) { return new Date(ms).toLocaleString(); }
 
 /* ---------- view / tab switching ---------- */
 function showView(name) {
+  if (name === 'company' && !companyTabVisible()) name = 'verify';
   for (const n of ['verify', 'company', 'trade']) {
     const cap = n[0].toUpperCase() + n.slice(1);
     document.getElementById('view-' + n).classList.toggle('active', n === name);
@@ -72,36 +85,6 @@ function showView(name) {
   if (name === 'company') renderCompanyView();
   if (name === 'trade') renderTradeView();
 }
-function showAuthTab(name) {
-  document.getElementById('authTabLogin').classList.toggle('active', name === 'login');
-  document.getElementById('authTabRegister').classList.toggle('active', name === 'register');
-  document.getElementById('authPanelLogin').classList.toggle('active', name === 'login');
-  document.getElementById('authPanelRegister').classList.toggle('active', name === 'register');
-}
-
-/* ---------- auth ---------- */
-async function doRegister() {
-  const name = document.getElementById('regName').value.trim();
-  const pin = document.getElementById('regPin').value; // the server still calls this field "pin"
-  const errEl = document.getElementById('regError');
-  errEl.style.display = 'none';
-
-  if (pin.length < 8) {
-    errEl.textContent = 'Choose a password of at least 8 characters.';
-    errEl.style.display = 'block';
-    return;
-  }
-
-  try {
-    const data = await api('/auth/register', { method: 'POST', body: JSON.stringify({ name, pin }) });
-    setSession(data);
-    renderCompanyView();
-  } catch (e) {
-    errEl.textContent = e.message;
-    errEl.style.display = 'block';
-  }
-}
-
 async function doLogin() {
   const name = document.getElementById('loginName').value.trim();
   const pin = document.getElementById('loginPin').value;
@@ -687,7 +670,7 @@ async function verifyCode(rawCode) {
     return;
   }
 
-  const { product, verifyCount, previousScanAt } = data;
+  const { product, previousScanAt } = data;
   const status = data.status || 'genuine'; // 'genuine' | 'unusual' | 'confirmed'
   const reasons = data.reasons || [];
 
@@ -715,7 +698,6 @@ async function verifyCode(rawCode) {
     <dt>Batch</dt><dd>${escapeHTML(product.batchNumber)}</dd>
     <dt>Manufactured</dt><dd>${escapeHTML(product.manufacturingDate)}</dd>
     <dt>Serial</dt><dd>${escapeHTML(product.serialNumber)}</dd>
-    <dt>Checked</dt><dd>${verifyCount} time${verifyCount === 1 ? '' : 's'}</dd>
     <dt>Previous check</dt><dd>${previousScanAt ? escapeHTML(formatWhen(previousScanAt)) : 'First time checked'}</dd>
     ${journeyHtml(data.journey)}
   `;
@@ -843,6 +825,7 @@ function batchToolsHtml(batch) {
   return `<div class="batch-tools">
     <div class="alert-actions">
       <button class="btn secondary sm" data-csv="/export/units.csv?batchId=${encodeURIComponent(id)}" data-file="codes-${escapeAttr(batch.batchNumber)}.csv">Download codes (CSV)</button>
+      <button class="btn secondary sm" data-label-batch="${escapeAttr(id)}" data-label-name="${escapeAttr(batch.batchNumber)}">Labels and QR images</button>
     </div>
     <label class="field-label" style="margin-top:12px;">Sales area (optional)</label>
     <p class="small-note">Distributors and retailers who record this batch outside the area raise an out-of-area alert.</p>
@@ -939,6 +922,8 @@ async function downloadFile(path, filename) {
 /* ---------- init ---------- */
 document.getElementById('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') verifyCode(); });
 if (session) renderCompanyView();
+updateTabs();
+if (ON_COMPANY_PATH) showView('company');
 
 // If someone scanned the QR with their phone's normal camera app, the link
 // opens this page with ?code=... in the address, so verify it straight away.

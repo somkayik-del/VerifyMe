@@ -111,3 +111,10 @@ select {
 .imp-table { border-collapse: collapse; margin: 8px 0; font-size: .85rem; }
 .imp-table th, .imp-table td { padding: 4px 12px 4px 0; text-align: left; border-bottom: 1px solid rgba(128, 128, 128, .3); }
 .imp-warn { color: #8a4b08; font-weight: 600; }
+
+/* ---- Labels and QR images ---- */
+.label-modal { display: none; position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 16px; background: rgba(0, 0, 0, .55); }
+.label-modal.open { display: block; }
+.label-card { max-width: 720px; margin: 16px auto; padding: 18px; border-radius: 10px; background: #fff; color: #1a1a1a; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); }
+.lbl-preview { margin: 12px 0 6px; overflow: auto; text-align: center; background: rgba(128, 128, 128, .12); padding: 10px; border-radius: 8px; }
+.lbl-preview canvas { max-width: 100%; touch-action: none; cursor: crosshair; background: #fff; }

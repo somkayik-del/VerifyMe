@@ -9,22 +9,17 @@ const DAY = 24 * HOUR;
 
 /* ---------- Settings (change here, or set the environment variables) ---------- */
 const CONFIG = {
-  // Rule 1 - spread: MORE THAN this many different devices, in 2+ places > far radius apart
-  spreadWindowMs: num('FLAG_WINDOW_MS', 7 * DAY),
-  spreadDevices: num('FLAG_DEVICE_THRESHOLD', 3),
-  farRadiusM: num('FLAG_FAR_RADIUS_M', 500),
+  // Rule 1 - spread: MORE THAN spreadDevices different devices, checking from at least spreadPlaces
+  // separate places that are more than farRadiusM apart. There is no time limit: every check counts.
+  spreadDevices: num('FLAG_DEVICE_THRESHOLD', 4),
+  spreadPlaces: num('FLAG_MIN_PLACES', 3),
+  farRadiusM: num('FLAG_FAR_RADIUS_M', 5000),
 
   // Rule 2 - impossible travel: two different devices, far apart, too close in time
   travelMinKm: num('TRAVEL_MIN_KM', 20),
   travelMaxKmh: num('TRAVEL_MAX_SPEED_KMH', 150),
-  travelLookbackMs: num('TRAVEL_LOOKBACK_MS', 24 * HOUR),
-
-  // Rule 3 - too many devices overall, wherever they are
-  manyDevices: num('MANY_DEVICES_THRESHOLD', 8),
-  manyWindowMs: num('MANY_DEVICES_WINDOW_MS', 30 * DAY)
+  travelLookbackMs: num('TRAVEL_LOOKBACK_MS', 24 * HOUR)
 };
-// How far back the scan history has to reach to apply every rule.
-CONFIG.lookbackMs = Math.max(CONFIG.spreadWindowMs, CONFIG.manyWindowMs, CONFIG.travelLookbackMs);
 
 /* ---------- Helpers ---------- */
 
@@ -41,8 +36,6 @@ function humanDuration(ms) {
   return `${Math.round(minutes / 60)} hours`;
 }
 
-const daysOf = ms => Math.round(ms / DAY);
-
 function parseReasons(json) {
   if (!json) return [];
   try {
@@ -55,20 +48,21 @@ function parseReasons(json) {
 
 /* ---------- The three rules ---------- */
 
-// Rule 1: more than N devices, at 2+ separate places, within the window.
-// Each device counts once (its latest scan), so one device scanning many times,
-// or many devices close together, never trips it.
-function ruleSpread(scans, now, since) {
-  const cutoff = Math.max(since, now - CONFIG.spreadWindowMs);
+// Rule 1: more than N different devices, checking from at least 3 separate places that are
+// more than 5 km apart. Each device counts once (its latest check), so one phone checking many
+// times never trips it. A crowd of phones in ONE place never trips it either: only the product
+// being checked from several far-apart places does. There is no time limit.
+function ruleSpread(scans, since) {
   const latestPerDevice = new Map();
   for (const s of scans) {
-    if (!s.device_id || s.lat == null || s.lng == null || s.at < cutoff) continue;
+    if (!s.device_id || s.lat == null || s.lng == null || s.at < since) continue;
     const seen = latestPerDevice.get(s.device_id);
     if (!seen || s.at > seen.at) latestPerDevice.set(s.device_id, s);
   }
   const points = [...latestPerDevice.values()];
   if (points.length <= CONFIG.spreadDevices) return null;
 
+  // Group checks into places: two checks that are NOT far apart share a place.
   const parent = points.map((_, i) => i);
   const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   for (let i = 0; i < points.length; i++) {
@@ -77,10 +71,11 @@ function ruleSpread(scans, now, since) {
     }
   }
   const places = new Set(points.map((_, i) => find(i))).size;
-  if (places < 2) return null;
+  if (places < CONFIG.spreadPlaces) return null;
+  const km = CONFIG.farRadiusM / 1000;
   return {
     code: 'spread',
-    text: `${points.length} different devices scanned it at ${places} separate locations in the last ${daysOf(CONFIG.spreadWindowMs)} days`
+    text: `${points.length} different devices have checked it from ${places} separate places, more than ${km} km apart`
   };
 }
 
@@ -106,19 +101,6 @@ function ruleImpossibleTravel(scans, current, since) {
   };
 }
 
-// Rule 3: too many different devices overall, even if they are all in one place.
-// (A copied code sold in a single market would slip past Rule 1 without this.)
-function ruleManyDevices(scans, now, since) {
-  const cutoff = Math.max(since, now - CONFIG.manyWindowMs);
-  const devices = new Set();
-  for (const s of scans) if (s.device_id && s.at >= cutoff) devices.add(s.device_id);
-  if (devices.size <= CONFIG.manyDevices) return null;
-  return {
-    code: 'many_devices',
-    text: `${devices.size} different devices have checked it in the last ${daysOf(CONFIG.manyWindowMs)} days`
-  };
-}
-
 /**
  * scans:   this unit's scan rows { at, lat, lng, accuracy, device_id } (any order),
  *          including the scan that just happened
@@ -128,12 +110,10 @@ function ruleManyDevices(scans, now, since) {
  */
 function evaluate({ scans, current, now = Date.now(), since = 0 }) {
   const reasons = [];
-  const a = ruleSpread(scans, now, since);
+  const a = ruleSpread(scans, since);
   const b = ruleImpossibleTravel(scans, current, since);
-  const c = ruleManyDevices(scans, now, since);
   if (a) reasons.push(a);
   if (b) reasons.push(b);
-  if (c) reasons.push(c);
   return reasons;
 }
 

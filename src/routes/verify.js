@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { MAX_ACCURACY_M } = require('../helpers');
-const { CONFIG, evaluate, parseReasons } = require('../detection');
+const { evaluate, parseReasons } = require('../detection');
 const { raiseFlag } = require('../flags');
 const { clientIp, checkGuessBlock, recordInvalidCode } = require('../security');
 
@@ -80,14 +80,13 @@ router.post('/', (req, res) => {
   let stored = parseReasons(unit.flag_reasons);
 
   if (status !== 'confirmed') {
-    // After a false alarm is cleared, only newer scans count.
+    // After a false alarm is cleared, only newer scans count. Otherwise the whole history counts.
     const since = status === 'reviewed' ? (unit.reviewed_at || 0) : 0;
-    const lower = Math.max(now - CONFIG.lookbackMs, since);
     const scans = db.prepare(
       `SELECT at, lat, lng, accuracy, device_id
        FROM scans WHERE unit_code = ? AND at >= ?
        ORDER BY at DESC LIMIT 5000`
-    ).all(unit.code, lower);
+    ).all(unit.code, since);
     const current = { at: now, lat, lng, accuracy, device_id: device };
 
     const reasons = evaluate({ scans, current, now, since });
@@ -113,7 +112,6 @@ router.post('/', (req, res) => {
       manufacturingDate: batch.manufacturing_date,
       serialNumber: unit.serial_number
     },
-    verifyCount: unit.verify_count + 1,
     // Shoppers only see WHEN it was last checked; exact locations stay with the company.
     previousScanAt: previous ? previous.at : null,
     status: outStatus,

@@ -127,6 +127,35 @@ function tradeLoginGuard(req, res, next) {
   next();
 }
 
+/* ---------- Administrator access ---------- */
+// Only the administrator (who knows ADMIN_TOKEN) can create company accounts.
+// Five wrong tokens from one connection pause further attempts for 15 minutes.
+const adminBlocker = createBlocker({ windowMs: 15 * 60000, maxFailures: 5, blockMs: 15 * 60000 });
+
+function tokenMatches(given, expected) {
+  const a = Buffer.from(String(given));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && require('crypto').timingSafeEqual(a, b);
+}
+
+function requireAdminToken(req, res, next) {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected) {
+    return res.status(403).json({ error: 'Administrator access has not been set up on this server yet.' });
+  }
+  const ip = clientIp(req);
+  const wait = adminBlocker.isBlocked(ip);
+  if (wait) {
+    return res.status(429).json({ error: `Too many wrong administrator tokens. Try again in ${Math.ceil(wait / 60)} minute(s).` });
+  }
+  if (!tokenMatches(req.headers['x-admin-token'] || '', expected)) {
+    adminBlocker.fail(ip);
+    return res.status(403).json({ error: 'Administrator access is required.' });
+  }
+  adminBlocker.clear(ip);
+  next();
+}
+
 /* ---------- The API ---------- */
 const apiKeyLimiter = createLimiter({
   windowMs: 60000, max: 120,
@@ -152,6 +181,6 @@ function recordInvalidCode(deviceId, ip) {
 module.exports = {
   clientIp, createLimiter, createBlocker,
   apiLimiter, verifyLimiter, registerLimiter,
-  loginGuard, registerRules, tradeLimiter, tradeLoginGuard, apiKeyLimiter,
+  loginGuard, registerRules, tradeLimiter, tradeLoginGuard, apiKeyLimiter, requireAdminToken, tokenMatches,
   checkGuessBlock, recordInvalidCode
 };

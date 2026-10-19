@@ -19,6 +19,7 @@ const exportRoutes = require('./routes/export');
 const keyRoutes = require('./routes/keys');
 const v1Routes = require('./routes/v1');
 const bulkRoutes = require('./routes/bulk');
+const labelRoutes = require('./routes/labels');
 
 const app = express();
 
@@ -35,7 +36,8 @@ app.use(express.json());
 app.use('/api', security.apiLimiter);
 app.use('/api/verify', security.verifyLimiter);
 app.post('/api/auth/login', security.loginGuard);
-app.post('/api/auth/register', security.registerLimiter, security.registerRules);
+// Only the administrator (with ADMIN_TOKEN) can create a company account.
+app.post('/api/auth/register', security.requireAdminToken, security.registerLimiter, security.registerRules);
 app.post('/api/trade/login', security.tradeLoginGuard);
 app.use('/api/trade', security.tradeLimiter);
 
@@ -49,12 +51,15 @@ app.use('/api', analyticsRoutes);
 app.use('/api', exportRoutes);
 app.use('/api', keyRoutes); // API keys
 app.use('/api', bulkRoutes); // spreadsheet (CSV) import
+app.use('/api', labelRoutes); // QR data for labels and print files
 app.use('/api/v1', v1Routes); // for a company's own systems
 app.use('/api/trade', tradeRoutes); // distributor / retailer portal
 app.use('/api/admin', adminRoutes);
 
 // Serve the frontend so the whole app runs from one origin (no CORS headaches).
 const frontendDir = path.join(__dirname, '..', 'frontend');
+// The administrator page has its own address and is not linked from anywhere.
+app.get('/admin', (req, res) => res.sendFile(path.join(frontendDir, 'admin.html')));
 app.use(express.static(frontendDir));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();

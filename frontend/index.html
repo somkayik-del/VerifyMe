@@ -23,7 +23,7 @@
     </div>
     <nav class="tabs">
       <button id="tabVerifyBtn" class="active" onclick="showView('verify')">Verify a product</button>
-      <button id="tabCompanyBtn" onclick="showView('company')">Company portal</button>
+      <button id="tabCompanyBtn" onclick="showView('company')" style="display:none;">Company portal</button>
       <button id="tabTradeBtn" onclick="showView('trade')">Trade portal</button>
     </nav>
   </div>
@@ -60,39 +60,21 @@
   <section id="view-company" class="view">
 
     <div id="authBlock">
-      <h2 class="section-title">Company portal</h2>
-      <p class="section-lede">Register your company, then log batches and generate QR codes for every unit you produce.</p>
+      <h2 class="section-title">Company login</h2>
+      <p class="section-lede">Log in to create codes, watch for copies and see your analytics. Company accounts are created by the administrator.</p>
 
       <div class="auth-box">
-        <div class="auth-toggle">
-          <button id="authTabLogin" class="active" onclick="showAuthTab('login')">Log in</button>
-          <button id="authTabRegister" onclick="showAuthTab('register')">Register company</button>
-        </div>
-
         <div id="authPanelLogin" class="auth-panel active">
           <div class="field">
             <label class="field-label">Company name</label>
-            <input type="text" id="loginName" placeholder="Peak Milk Nigeria">
+            <input type="text" id="loginName" placeholder="Peak Milk Nigeria" autocomplete="username">
           </div>
           <div class="field">
             <label class="field-label">Password</label>
-            <input type="password" id="loginPin" placeholder="Your password">
+            <input type="password" id="loginPin" placeholder="Your password" autocomplete="current-password">
           </div>
           <p class="error-text" id="loginError" style="display:none;"></p>
           <button class="btn full" onclick="doLogin()">Log in</button>
-        </div>
-
-        <div id="authPanelRegister" class="auth-panel">
-          <div class="field">
-            <label class="field-label">Company name</label>
-            <input type="text" id="regName" placeholder="Peak Milk Nigeria">
-          </div>
-          <div class="field">
-            <label class="field-label">Choose a password</label>
-            <input type="password" id="regPin" placeholder="At least 8 characters">
-          </div>
-          <p class="error-text" id="regError" style="display:none;"></p>
-          <button class="btn full" onclick="doRegister()">Create company profile</button>
         </div>
       </div>
     </div>
@@ -345,6 +327,50 @@
   Powered by Somze.
 </footer>
 
+<!-- Labels and QR images -->
+<div class="label-modal" id="labelModal">
+  <div class="label-card">
+    <div class="an-head">
+      <h3 style="margin:0;">Labels and QR images · <span id="lblTitle"></span></h3>
+      <button class="btn ghost" onclick="closeLabels()">Close</button>
+    </div>
+    <p class="small-note" id="lblIntro"></p>
+
+    <div class="field">
+      <label class="field-label">Your product design (optional): PNG, JPG or WebP</label>
+      <input type="file" id="lblFile" accept="image/png,image/jpeg,image/webp">
+      <div class="alert-actions"><button class="btn secondary sm" id="lblRemove" style="display:none;" onclick="removeDesign()">Remove my design</button></div>
+    </div>
+
+    <div class="lbl-preview"><canvas id="lblCanvas"></canvas></div>
+    <p class="small-note" id="lblHint"></p>
+
+    <div class="row2">
+      <div class="field">
+        <label class="field-label">QR code size: <span id="lblSizeText"></span></label>
+        <input type="range" id="lblSize" min="8" max="95" step="1">
+      </div>
+      <div class="field">
+        <label class="field-label">Printed label width (mm)</label>
+        <input type="number" id="lblWidth" min="10" max="1000" step="1">
+      </div>
+    </div>
+    <p class="small-note" id="lblPhysical"></p>
+    <label class="check-row"><input type="checkbox" id="lblCaption" checked>
+      <span>Print the code under each QR, so a person can type it if the QR is damaged.</span></label>
+
+    <div class="field">
+      <label class="field-label">Create</label>
+      <select id="lblFormat">
+        <option value="pdf">One PDF, one label per page (best for printing)</option>
+        <option value="zip">A ZIP of separate images, one per unit</option>
+      </select>
+    </div>
+    <div class="alert-actions"><button class="btn" id="lblGo" onclick="createLabels()">Create file</button></div>
+    <p class="status-line" id="lblStatus"></p>
+  </div>
+</div>
+
 <!-- Camera modal -->
 <div class="cam-modal" id="camModal">
   <div class="cam-card">
@@ -379,5 +405,6 @@
 <script src="analytics-ui.js"></script>
 <script src="api-keys-ui.js"></script>
 <script src="import-ui.js"></script>
+<script src="labels-ui.js"></script>
 </body>
 </html>
